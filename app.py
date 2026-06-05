@@ -10,6 +10,16 @@ from agent import chat
 
 load_dotenv()
 
+
+def _get_secret(key: str, default: str = "") -> str:
+    """Read from Streamlit secrets (cloud) or env vars (local), whichever has it."""
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+    except (FileNotFoundError, Exception):
+        pass
+    return os.environ.get(key, default)
+
 st.set_page_config(page_title="AI Data Scientist", page_icon="[chart]", layout="wide")
 
 # ---------- Sidebar ----------
@@ -17,18 +27,16 @@ with st.sidebar:
     st.title("AI Data Scientist")
     st.caption("Chat-based BI over your Google Analytics data.")
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = _get_secret("ANTHROPIC_API_KEY")
     if not api_key:
         api_key = st.text_input("Anthropic API Key", type="password",
-                                help="Set ANTHROPIC_API_KEY in .env to skip this.")
+                                help="Set ANTHROPIC_API_KEY in .env (local) or Streamlit secrets (cloud).")
 
-    model = st.selectbox(
-        "Model",
-        options=["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
-        index=["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"].index(
-            os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
-        ),
-    )
+    model_default = _get_secret("ANTHROPIC_MODEL", "claude-opus-4-8")
+    model_options = ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]
+    if model_default not in model_options:
+        model_default = "claude-opus-4-8"
+    model = st.selectbox("Model", options=model_options, index=model_options.index(model_default))
 
     st.divider()
     st.subheader("Data source")
