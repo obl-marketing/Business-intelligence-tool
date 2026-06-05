@@ -1,11 +1,22 @@
-"""Claude agent loop with GA4 tool use."""
+"""Provider-agnostic agent loop. Routes to Anthropic or Gemini.
+
+The chat() function yields events of the form:
+  {"type": "text", "text": str}
+  {"type": "tool_use", "name": str, "input": dict}
+  {"type": "tool_result", "name": str, "output": str}
+  {"type": "done"}
+
+Messages are passed in normalized text-only form across turns:
+  [{"role": "user"|"assistant", "content": "string"}, ...]
+
+The provider-specific tool-use loop happens inside each implementation and
+is not surfaced as messages between turns (each new user message gets a fresh
+agent loop with just the text history for context).
+"""
 from __future__ import annotations
 import datetime as _dt
-import json
 import os
 from typing import Iterator
-
-import anthropic
 
 from tools import TOOL_SCHEMAS, run_tool
 import mock_data
@@ -52,21 +63,28 @@ def chat(
     messages: list[dict],
     model: str | None = None,
     api_key: str | None = None,
+    provider: str | None = None,
 ) -> Iterator[dict]:
-    """Run the agent loop. Yields dicts describing what's happening.
+    """Dispatch to the right provider implementation."""
+    provider = (provider or os.environ.get("LLM_PROVIDER", "anthropic")).lower()
+    if provider == "gemini":
+        yield from _chat_gemini(messages, model, api_key)
+    else:
+        yield from _chat_anthropic(messages, model, api_key)
 
-    Yields events of the form:
-      {"type": "text", "text": str}            - assistant text (final or interim)
-      {"type": "tool_use", "name": str, "input": dict}
-      {"type": "tool_result", "name": str, "output": str}
-      {"type": "done", "messages": list}       - updated message history
-    """
+
+# ===========================================================
+# Anthropic Claude
+# ===========================================================
+
+def _chat_anthropic(messages, model, api_key) -> Iterator[dict]:
+    import anthropic
+
     client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
     model = model or os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
 
-    working_messages = list(messages)
+    working_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
 
-    # Safety cap on tool-calling iterations
     for _ in range(10):
         response = client.messages.create(
             model=model,
@@ -76,20 +94,17 @@ def chat(
             messages=working_messages,
         )
 
-        # Emit any text blocks for streaming display
         for block in response.content:
             if block.type == "text" and block.text:
                 yield {"type": "text", "text": block.text}
             elif block.type == "tool_use":
                 yield {"type": "tool_use", "name": block.name, "input": block.input}
 
-        # Append assistant turn to history
         working_messages.append({"role": "assistant", "content": response.content})
 
         if response.stop_reason != "tool_use":
             break
 
-        # Execute every tool_use block, collect results
         tool_results = []
         for block in response.content:
             if block.type != "tool_use":
@@ -101,7 +116,101 @@ def chat(
                 "tool_use_id": block.id,
                 "content": result,
             })
-
         working_messages.append({"role": "user", "content": tool_results})
 
-    yield {"type": "done", "messages": working_messages}
+    yield {"type": "done"}
+
+
+# ===========================================================
+# Google Gemini
+# ===========================================================
+
+def _claude_schema_to_gemini(schema: dict) -> dict:
+    """Gemini accepts OpenAPI-style schemas — same shape as Anthropic's input_schema."""
+    if not schema.get("properties"):
+        # Gemini doesn't accept empty-property objects; insert a dummy optional
+        return {
+            "type": "object",
+            "properties": {
+                "_unused": {"type": "string", "description": "no parameters needed"}
+            },
+        }
+    return schema
+
+
+def _chat_gemini(messages, model, api_key) -> Iterator[dict]:
+    from google import genai
+    from google.genai import types as gt
+
+    api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("Set GEMINI_API_KEY (or GOOGLE_API_KEY) in your secrets / env.")
+    client = genai.Client(api_key=api_key)
+    model = model or os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+
+    # Build the Gemini tool config from our shared TOOL_SCHEMAS
+    function_declarations = [
+        gt.FunctionDeclaration(
+            name=t["name"],
+            description=t["description"],
+            parameters=_claude_schema_to_gemini(t["input_schema"]),
+        )
+        for t in TOOL_SCHEMAS
+    ]
+    tools_config = [gt.Tool(function_declarations=function_declarations)]
+
+    # Build initial contents (prior text turns)
+    contents = []
+    for m in messages:
+        role = "user" if m["role"] == "user" else "model"
+        contents.append({"role": role, "parts": [{"text": m["content"]}]})
+
+    config = gt.GenerateContentConfig(
+        system_instruction=system_prompt(),
+        tools=tools_config,
+    )
+
+    for _ in range(10):
+        response = client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=config,
+        )
+
+        candidate = response.candidates[0] if response.candidates else None
+        if not candidate or not candidate.content or not candidate.content.parts:
+            break
+
+        model_parts = []
+        tool_calls = []
+        for part in candidate.content.parts:
+            if getattr(part, "text", None):
+                yield {"type": "text", "text": part.text}
+                model_parts.append({"text": part.text})
+            fc = getattr(part, "function_call", None)
+            if fc:
+                args = dict(fc.args) if fc.args else {}
+                args.pop("_unused", None)  # remove our schema dummy if Gemini fills it
+                yield {"type": "tool_use", "name": fc.name, "input": args}
+                model_parts.append({"function_call": {"name": fc.name, "args": args}})
+                tool_calls.append((fc.name, args))
+
+        if model_parts:
+            contents.append({"role": "model", "parts": model_parts})
+
+        if not tool_calls:
+            break
+
+        response_parts = []
+        for name, args in tool_calls:
+            result = run_tool(name, args)
+            yield {"type": "tool_result", "name": name, "output": result}
+            response_parts.append({
+                "function_response": {
+                    "name": name,
+                    "response": {"result": result},
+                }
+            })
+        contents.append({"role": "user", "parts": response_parts})
+
+    yield {"type": "done"}

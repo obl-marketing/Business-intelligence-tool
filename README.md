@@ -1,6 +1,6 @@
 # AI Data Scientist - Chat-based BI Tool
 
-A chat-based business intelligence tool that connects to your data sources and acts like an AI data scientist. Ships with three sources wired up (mock data for the demo) and powered by Claude:
+A chat-based business intelligence tool that connects to your data sources and acts like an AI data scientist. Ships with three sources wired up (mock data for the demo) and powered by your choice of **Anthropic Claude** or **Google Gemini**:
 
 - **Google Analytics 4** - traffic, events, funnels, products, lead forms
 - **Google Ads** - campaigns, keywords, spend, ROAS
@@ -118,11 +118,29 @@ The tool schemas the agent sees never change - the input dates and output shapes
 
 ## Configuration
 
-| Env var | Default | Notes |
+| Env var / secret | Default | Notes |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | - | Required. |
-| `ANTHROPIC_MODEL` | `claude-opus-4-8` | Override in the sidebar or here. Use `claude-sonnet-4-6` for cheaper runs. |
-| `DATA_SOURCE` | `mock` | Set to `ga4` once you wire in the real API. |
+| `LLM_PROVIDER` | `anthropic` | `anthropic` or `gemini`. Sidebar overrides. |
+| `ANTHROPIC_API_KEY` | - | Required if provider is `anthropic`. Get one at https://console.anthropic.com/. |
+| `ANTHROPIC_MODEL` | `claude-haiku-4-5` | Options: `claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5`. |
+| `GEMINI_API_KEY` | - | Required if provider is `gemini`. **Free** key at https://aistudio.google.com/apikey. |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Options: `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`. |
+| `DATA_SOURCE` | `mock` | Set to `ga4` once you wire in real APIs. |
+
+### Using Gemini (free)
+
+Google's Gemini API has a generous free tier — perfect for this demo. To use it:
+
+1. Get a free API key from https://aistudio.google.com/apikey.
+2. In Streamlit Cloud → Settings → Secrets:
+   ```toml
+   LLM_PROVIDER = "gemini"
+   GEMINI_API_KEY = "..."
+   GEMINI_MODEL = "gemini-2.5-flash"
+   ```
+3. Reboot the app, or just pick "Google Gemini" in the sidebar dropdown.
+
+Same tool definitions and system prompt — only the model behind the scenes changes.
 
 ---
 

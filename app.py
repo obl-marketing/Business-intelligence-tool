@@ -1,4 +1,4 @@
-"""Streamlit chat UI for the BI tool."""
+"""Streamlit chat UI for the BI tool. Supports Anthropic Claude and Google Gemini."""
 from __future__ import annotations
 import json
 import os
@@ -20,29 +20,58 @@ def _get_secret(key: str, default: str = "") -> str:
         pass
     return os.environ.get(key, default)
 
+
+PROVIDER_MODELS = {
+    "anthropic": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
+    "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"],
+}
+PROVIDER_DEFAULT_MODEL = {
+    "anthropic": "claude-haiku-4-5",
+    "gemini": "gemini-2.5-flash",
+}
+
 st.set_page_config(page_title="AI Data Scientist", page_icon="[chart]", layout="wide")
 
 # ---------- Sidebar ----------
 with st.sidebar:
     st.title("AI Data Scientist")
-    st.caption("Chat-based BI over your Google Analytics data.")
+    st.caption("Chat-based BI over your marketing data.")
 
-    api_key = _get_secret("ANTHROPIC_API_KEY")
-    if not api_key:
-        api_key = st.text_input("Anthropic API Key", type="password",
-                                help="Set ANTHROPIC_API_KEY in .env (local) or Streamlit secrets (cloud).")
+    # Provider selection
+    secret_provider = _get_secret("LLM_PROVIDER", "anthropic").lower()
+    if secret_provider not in PROVIDER_MODELS:
+        secret_provider = "anthropic"
+    provider = st.selectbox(
+        "Provider",
+        options=["anthropic", "gemini"],
+        index=["anthropic", "gemini"].index(secret_provider),
+        format_func=lambda p: "Anthropic Claude" if p == "anthropic" else "Google Gemini",
+    )
 
-    model_default = _get_secret("ANTHROPIC_MODEL", "claude-opus-4-8")
-    model_options = ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]
+    # API key for chosen provider
+    if provider == "anthropic":
+        api_key = _get_secret("ANTHROPIC_API_KEY")
+        if not api_key:
+            api_key = st.text_input("Anthropic API Key", type="password",
+                                    help="Set ANTHROPIC_API_KEY in secrets.")
+    else:
+        api_key = _get_secret("GEMINI_API_KEY") or _get_secret("GOOGLE_API_KEY")
+        if not api_key:
+            api_key = st.text_input("Gemini API Key", type="password",
+                                    help="Set GEMINI_API_KEY in secrets. Get one free at https://aistudio.google.com/apikey.")
+
+    # Model picker for chosen provider
+    model_options = PROVIDER_MODELS[provider]
+    secret_model_key = "ANTHROPIC_MODEL" if provider == "anthropic" else "GEMINI_MODEL"
+    model_default = _get_secret(secret_model_key, PROVIDER_DEFAULT_MODEL[provider])
     if model_default not in model_options:
-        model_default = "claude-opus-4-8"
+        model_default = PROVIDER_DEFAULT_MODEL[provider]
     model = st.selectbox("Model", options=model_options, index=model_options.index(model_default))
 
     st.divider()
     st.subheader("Data sources")
     st.caption("Demo date range: 2026-03-01 to 2026-06-04")
 
-    # Google Analytics
     with st.expander("Google Analytics 4  —  connected (mock)", expanded=False):
         st.markdown(
             "**To connect your real GA4 property:**\n\n"
@@ -60,7 +89,6 @@ with st.sidebar:
             "6. Reboot the app. Mock data is replaced with real GA4 data."
         )
 
-    # Google Ads
     with st.expander("Google Ads  —  connected (mock)", expanded=False):
         st.markdown(
             "**To connect your real Google Ads account:**\n\n"
@@ -83,7 +111,6 @@ with st.sidebar:
             "6. Reboot the app."
         )
 
-    # Meta Ads
     with st.expander("Meta Ads (Facebook + Instagram)  —  connected (mock)", expanded=False):
         st.markdown(
             "**To connect your real Meta Ads account:**\n\n"
@@ -106,18 +133,14 @@ with st.sidebar:
     st.divider()
     st.subheader("Try asking")
     examples = [
-        # GA4
         "How many page views did I get in May 2026?",
         "Analyse my user journey and tell me where there's a drop-off.",
         "Go through my GA4 events and tell me my top viewed products.",
         "Analyse all my lead forms and tell me the best and worst performers.",
-        # Google Ads
         "Which Google Ads campaigns are wasting spend?",
         "Find my worst-performing Google Ads keywords - candidates for negative keywords.",
-        # Meta Ads
         "What's my Meta Ads ROAS by campaign?",
         "Which Meta Ads creatives are working and which are fatigued?",
-        # Cross-channel
         "Compare Google Ads vs Meta Ads - where should I shift budget?",
     ]
     for ex in examples:
@@ -132,34 +155,29 @@ with st.sidebar:
 
 
 # ---------- State ----------
+# Each entry: {"role": "user"|"assistant", "content": "text", "display_blocks": [...]}
+# `content` is text-only and is what the next API call sees. `display_blocks` is
+# kept separately for re-rendering rich tool-call expanders on the screen.
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
 
 
 # ---------- Render history ----------
-def _render_assistant_blocks(blocks: list[dict]) -> None:
+def _render_blocks(blocks: list[dict]) -> None:
     for b in blocks:
         if b["kind"] == "text":
             st.markdown(b["content"])
         elif b["kind"] == "tool":
             with st.expander(f"Tool: `{b['name']}`  -  args: `{json.dumps(b['input'])}`"):
                 try:
-                    parsed = json.loads(b["output"])
-                    st.json(parsed)
+                    st.json(json.loads(b["output"]))
                 except Exception:
                     st.code(b["output"])
 
 
 for msg in st.session_state["messages"]:
-    role = msg.get("display_role", msg["role"])
-    if role == "tool_internal":
-        continue  # tool results - kept in history for the API but not shown
-    if role == "user":
-        with st.chat_message("user"):
-            st.markdown(msg["display_content"])
-    else:
-        with st.chat_message("assistant"):
-            _render_assistant_blocks(msg["display_blocks"])
+    with st.chat_message(msg["role"]):
+        _render_blocks(msg.get("display_blocks", [{"kind": "text", "content": msg["content"]}]))
 
 
 # ---------- Handle input ----------
@@ -169,94 +187,75 @@ if "pending_input" in st.session_state:
 
 if prompt:
     if not api_key:
-        st.error("Please provide an Anthropic API key (sidebar or .env).")
+        st.error(f"Please provide a {provider.title()} API key (sidebar or secrets).")
         st.stop()
 
-    # display user message immediately
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # build the API message history (no display fields)
-    api_history = []
-    for m in st.session_state["messages"]:
-        api_history.append({"role": m["role"], "content": m["content"]})
+    # api_history: just text turns
+    api_history = [{"role": m["role"], "content": m["content"]} for m in st.session_state["messages"]]
     api_history.append({"role": "user", "content": prompt})
 
-    # persist user message for display
+    # Display + persist user turn
+    with st.chat_message("user"):
+        st.markdown(prompt)
     st.session_state["messages"].append({
         "role": "user",
         "content": prompt,
-        "display_role": "user",
-        "display_content": prompt,
+        "display_blocks": [{"kind": "text", "content": prompt}],
     })
 
-    # stream assistant response
+    # Stream assistant turn
     with st.chat_message("assistant"):
         display_blocks: list[dict] = []
-        tool_placeholders: dict[str, object] = {}
-        text_area = st.empty()
         accumulated_text = ""
-        final_messages = api_history
+        text_area = st.empty()
+        tool_status_by_call: dict[int, object] = {}
 
         try:
-            for event in chat(api_history, model=model, api_key=api_key):
-                if event["type"] == "text":
+            for event in chat(api_history, model=model, api_key=api_key, provider=provider):
+                etype = event["type"]
+                if etype == "text":
                     accumulated_text += event["text"]
                     display_blocks.append({"kind": "text", "content": event["text"]})
                     text_area.markdown(accumulated_text)
-                elif event["type"] == "tool_use":
-                    text_area = st.empty()  # close current text region
+                elif etype == "tool_use":
+                    # Close current text region, open a status box for the tool
+                    text_area = st.empty()
                     accumulated_text = ""
-                    label = f"Calling `{event['name']}`..."
-                    placeholder = st.status(label, expanded=False)
-                    tool_placeholders[event["name"] + json.dumps(event["input"], sort_keys=True)] = placeholder
+                    placeholder = st.status(f"Calling `{event['name']}`...", expanded=False)
+                    call_index = len(display_blocks)
+                    tool_status_by_call[call_index] = placeholder
                     display_blocks.append({
                         "kind": "tool",
                         "name": event["name"],
                         "input": event["input"],
                         "output": "",
                     })
-                elif event["type"] == "tool_result":
-                    # update the last matching tool block
-                    for b in reversed(display_blocks):
+                elif etype == "tool_result":
+                    # Fill the most recent empty tool block with this name
+                    for i in range(len(display_blocks) - 1, -1, -1):
+                        b = display_blocks[i]
                         if b["kind"] == "tool" and b["name"] == event["name"] and not b["output"]:
                             b["output"] = event["output"]
-                            break
-                    # find the matching placeholder and close it
-                    for key, placeholder in list(tool_placeholders.items()):
-                        if key.startswith(event["name"]):
-                            with placeholder:
-                                try:
-                                    st.json(json.loads(event["output"]))
-                                except Exception:
-                                    st.code(event["output"])
-                            placeholder.update(label=f"Done: `{event['name']}`", state="complete")
-                            del tool_placeholders[key]
+                            placeholder = tool_status_by_call.get(i)
+                            if placeholder is not None:
+                                with placeholder:
+                                    try:
+                                        st.json(json.loads(event["output"]))
+                                    except Exception:
+                                        st.code(event["output"])
+                                placeholder.update(label=f"Done: `{event['name']}`", state="complete")
                             break
                     text_area = st.empty()
-                elif event["type"] == "done":
-                    final_messages = event["messages"]
+                elif etype == "done":
+                    pass
         except Exception as e:
             st.error(f"Error: {e}")
             st.stop()
 
-    # persist assistant turn(s) - keep the full API history for next turn
-    # the last message in final_messages is the assistant; remember everything after the user turn
-    user_idx = len(api_history) - 1  # index of the user message we just sent
-    new_turns = final_messages[user_idx + 1:]
-    for turn in new_turns:
-        if turn["role"] == "assistant":
-            st.session_state["messages"].append({
-                "role": "assistant",
-                "content": turn["content"],
-                "display_role": "assistant",
-                "display_blocks": display_blocks,
-            })
-        else:
-            # tool_result user turns - keep for context but not displayed
-            st.session_state["messages"].append({
-                "role": "user",
-                "content": turn["content"],
-                "display_role": "tool_internal",
-                "display_blocks": [],
-            })
+    # Persist normalized assistant turn (text only) + rich blocks for re-rendering
+    assistant_text = "".join(b["content"] for b in display_blocks if b["kind"] == "text")
+    st.session_state["messages"].append({
+        "role": "assistant",
+        "content": assistant_text,
+        "display_blocks": display_blocks,
+    })
