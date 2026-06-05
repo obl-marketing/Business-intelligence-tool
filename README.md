@@ -1,14 +1,19 @@
 # AI Data Scientist - Chat-based BI Tool
 
-A chat-based business intelligence tool that connects to your data sources and acts like an AI data scientist. Currently ships with Google Analytics (mock data for the demo) and powered by Claude.
+A chat-based business intelligence tool that connects to your data sources and acts like an AI data scientist. Ships with three sources wired up (mock data for the demo) and powered by Claude:
+
+- **Google Analytics 4** - traffic, events, funnels, products, lead forms
+- **Google Ads** - campaigns, keywords, spend, ROAS
+- **Meta Ads** (Facebook + Instagram) - campaigns and per-creative performance
 
 Ask questions like:
 - *"How many page views did I get in May?"*
 - *"Analyse my user journey and tell me where there's a drop-off."*
-- *"Go through my GA4 events and tell me my top viewed products."*
-- *"Which of my lead forms perform best, and which need work?"*
+- *"Which Google Ads campaigns are wasting spend?"*
+- *"What's my Meta Ads ROAS by creative format?"*
+- *"Compare Google Ads vs Meta Ads — where should I shift budget?"*
 
-The agent calls GA4 tools, grounds answers in real data, and gives you **findings, analysis, and recommended strategies** - not just numbers.
+The agent calls the right tools, grounds answers in real data, and gives you **findings, analysis, and recommended strategies** - not just numbers.
 
 ---
 
@@ -59,32 +64,55 @@ Open http://localhost:8501 in your browser.
 - **`mock_data.py`** - Realistic synthetic GA4 data (Mar-Jun 2026)
 
 The agent has these tools:
+
+**Google Analytics 4**
 - `query_pageviews` - traffic over time or by page
 - `query_events` - GA4 events with counts and unique users
 - `analyze_user_journey` - funnel with drop-off at each step
 - `query_top_products` - product views, add-to-cart, purchases, revenue
 - `query_form_performance` - lead form views, submissions, conversion rates
-- `get_data_coverage` - what date range data is available
+
+**Google Ads**
+- `query_google_ads_summary` - account totals (spend, clicks, conversions, ROAS)
+- `query_google_ads_campaigns` - per-campaign breakdown
+- `query_google_ads_keywords` - per-keyword performance + match types
+
+**Meta Ads**
+- `query_meta_ads_summary` - account totals (spend, reach, CPM, ROAS)
+- `query_meta_ads_campaigns` - per-campaign breakdown (with frequency for ad-fatigue)
+- `query_meta_ads_creatives` - per-ad creative performance by format
+
+**Meta**
+- `get_data_coverage` - what date range data is available across sources
 
 ---
 
-## Connecting real Google Analytics
+## Connecting real data sources
 
-The mock-data layer is the only thing standing between you and real GA4. To swap it in:
+The sidebar in the app has step-by-step setup instructions for each source. Summary:
 
-1. Create a GCP service account, enable the **Google Analytics Data API**, and give it Viewer access to your GA4 property.
-2. Download the service account JSON.
-3. Install the GA4 client:
-   ```bash
-   pip install google-analytics-data
-   ```
-4. Set in `.env`:
-   ```
-   GOOGLE_APPLICATION_CREDENTIALS=/abs/path/to/service-account.json
-   GA4_PROPERTY_ID=123456789
-   DATA_SOURCE=ga4
-   ```
-5. In `tools.py`, replace each `mock_data.*` call with a real GA4 `BetaAnalyticsDataClient.run_report(...)` call. The tool schemas the agent sees don't need to change - same date ranges, same return shape.
+### Google Analytics 4
+1. Enable the **Google Analytics Data API** in Google Cloud.
+2. Create a service account, download its JSON, grant it Viewer on your GA4 property.
+3. `pip install google-analytics-data`.
+4. Set `GA4_PROPERTY_ID` and `GA4_SERVICE_ACCOUNT_JSON` in secrets.
+5. In `tools.py`, replace `mock_data.*` calls with `BetaAnalyticsDataClient.run_report(...)`.
+
+### Google Ads
+1. Apply for a **Google Ads API developer token**.
+2. Create OAuth 2.0 credentials, generate a refresh token.
+3. `pip install google-ads`.
+4. Set the five `GOOGLE_ADS_*` secrets shown in the sidebar.
+5. In `tools.py`, replace `mock_data.google_ads_*` calls with `GoogleAdsClient` GAQL queries.
+
+### Meta Ads
+1. Create a Meta Business app, add Marketing API product.
+2. Generate a long-lived access token with `ads_read`.
+3. `pip install facebook-business`.
+4. Set `META_ACCESS_TOKEN` and `META_AD_ACCOUNT_ID` in secrets.
+5. In `tools.py`, replace `mock_data.meta_ads_*` calls with `AdAccount(...).get_insights(...)`.
+
+The tool schemas the agent sees never change - the input dates and output shapes stay the same. Only the data layer behind `tools.py` swaps from mock to real.
 
 ---
 

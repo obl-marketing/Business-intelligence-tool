@@ -117,6 +117,105 @@ TOOL_SCHEMAS = [
         ),
         "input_schema": {"type": "object", "properties": {}},
     },
+    # ---------- Google Ads ----------
+    {
+        "name": "query_google_ads_summary",
+        "description": (
+            "Account-level Google Ads totals for a date range: spend, impressions, clicks, "
+            "conversions, conversion value (revenue), CTR, CPC, CPA, ROAS. Use this for "
+            "high-level questions about Google Ads performance."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
+        "name": "query_google_ads_campaigns",
+        "description": (
+            "Per-campaign Google Ads breakdown with spend, clicks, conversions, conversion "
+            "value, CTR, CPC, CPA, ROAS. Use when comparing campaigns, finding wasted spend, "
+            "or identifying underperformers."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
+        "name": "query_google_ads_keywords",
+        "description": (
+            "Per-keyword Google Ads performance: impressions, clicks, CTR, CPC, conversions, "
+            "ROAS, plus campaign and match type. Use for keyword-level analysis, finding "
+            "negative keyword candidates, or identifying scaling opportunities."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "limit": {"type": "integer", "description": "Max keywords (default 25)"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    # ---------- Meta Ads ----------
+    {
+        "name": "query_meta_ads_summary",
+        "description": (
+            "Account-level Meta Ads (Facebook/Instagram) totals: spend, impressions, reach, "
+            "clicks, conversions, conversion value, CTR, CPM, CPC, CPA, ROAS. Use for "
+            "high-level questions about Meta ads performance."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
+        "name": "query_meta_ads_campaigns",
+        "description": (
+            "Per-campaign Meta Ads breakdown with objective, spend, reach, frequency, CTR, "
+            "CPM, conversions, ROAS. Use when comparing campaigns, spotting frequency-cap "
+            "issues, or finding poor-ROAS campaigns to pause."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
+        "name": "query_meta_ads_creatives",
+        "description": (
+            "Per-creative (per-ad) Meta Ads performance with format (image/video/carousel/dpa), "
+            "spend, CTR, conversions, ROAS. Use for creative testing analysis, identifying "
+            "winning ad formats, or finding fatigued creatives to retire."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
 ]
 
 
@@ -181,8 +280,54 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                 "data_start": mock_data.DATA_START.isoformat(),
                 "data_end": mock_data.DATA_END.isoformat(),
                 "source": "mock",
-                "note": "Synthetic GA4-shaped data for demo. Swap in real GA4 by editing tools.py.",
+                "connected_sources": ["google_analytics", "google_ads", "meta_ads"],
+                "note": "Synthetic data for demo. Swap in real APIs by editing tools.py.",
             })
+
+        # ---------- Google Ads ----------
+        if name == "query_google_ads_summary":
+            start = _parse_date(args["start_date"])
+            end = _parse_date(args["end_date"])
+            return json.dumps(mock_data.google_ads_summary(start, end))
+
+        if name == "query_google_ads_campaigns":
+            start = _parse_date(args["start_date"])
+            end = _parse_date(args["end_date"])
+            data = mock_data.google_ads_campaigns(start, end)
+            spending = [c for c in data if c["spend"] > 0]
+            best = max(spending, key=lambda c: c["roas"]) if spending else None
+            worst = min(spending, key=lambda c: c["roas"]) if spending else None
+            return json.dumps({"rows": data, "best_roas": best, "worst_roas": worst})
+
+        if name == "query_google_ads_keywords":
+            start = _parse_date(args["start_date"])
+            end = _parse_date(args["end_date"])
+            limit = int(args.get("limit", 25))
+            data = mock_data.google_ads_keywords(start, end, limit=limit)
+            return json.dumps({"rows": data})
+
+        # ---------- Meta Ads ----------
+        if name == "query_meta_ads_summary":
+            start = _parse_date(args["start_date"])
+            end = _parse_date(args["end_date"])
+            return json.dumps(mock_data.meta_ads_summary(start, end))
+
+        if name == "query_meta_ads_campaigns":
+            start = _parse_date(args["start_date"])
+            end = _parse_date(args["end_date"])
+            data = mock_data.meta_ads_campaigns(start, end)
+            spending = [c for c in data if c["spend"] > 0]
+            best = max(spending, key=lambda c: c["roas"]) if spending else None
+            worst = min(spending, key=lambda c: c["roas"]) if spending else None
+            return json.dumps({"rows": data, "best_roas": best, "worst_roas": worst})
+
+        if name == "query_meta_ads_creatives":
+            start = _parse_date(args["start_date"])
+            end = _parse_date(args["end_date"])
+            data = mock_data.meta_ads_creatives(start, end)
+            best = data[0] if data else None
+            worst = data[-1] if data else None
+            return json.dumps({"rows": data, "best_creative": best, "worst_creative": worst})
 
         return json.dumps({"error": f"Unknown tool: {name}"})
 

@@ -39,17 +39,86 @@ with st.sidebar:
     model = st.selectbox("Model", options=model_options, index=model_options.index(model_default))
 
     st.divider()
-    st.subheader("Data source")
-    st.success("Connected: Mock GA4 (demo data)")
-    st.caption("Date range: 2026-03-01 to 2026-06-04")
+    st.subheader("Data sources")
+    st.caption("Demo date range: 2026-03-01 to 2026-06-04")
+
+    # Google Analytics
+    with st.expander("Google Analytics 4  —  connected (mock)", expanded=False):
+        st.markdown(
+            "**To connect your real GA4 property:**\n\n"
+            "1. In Google Cloud Console, enable the **Google Analytics Data API**.\n"
+            "2. Create a **service account** and download its JSON key.\n"
+            "3. In GA4 → Admin → Property Access Management, add the service "
+            "account email as a **Viewer**.\n"
+            "4. Find your **GA4 Property ID** (Admin → Property Settings).\n"
+            "5. Add to Streamlit secrets:\n"
+            "```toml\n"
+            'GA4_PROPERTY_ID = "123456789"\n'
+            'GA4_SERVICE_ACCOUNT_JSON = """<paste the JSON contents here>"""\n'
+            "DATA_SOURCE = \"ga4\"\n"
+            "```\n"
+            "6. Reboot the app. Mock data is replaced with real GA4 data."
+        )
+
+    # Google Ads
+    with st.expander("Google Ads  —  connected (mock)", expanded=False):
+        st.markdown(
+            "**To connect your real Google Ads account:**\n\n"
+            "1. Apply for a **Google Ads API developer token** "
+            "(takes 1-2 business days).\n"
+            "2. In Google Cloud Console, create an **OAuth 2.0 client** "
+            "(type: Desktop or Web).\n"
+            "3. Generate a **refresh token** using the OAuth playground or "
+            "Google's `oauth2l` tool, scoped to `https://www.googleapis.com/auth/adwords`.\n"
+            "4. Find your **Customer ID** in the Google Ads UI (top-right, "
+            "format `123-456-7890`).\n"
+            "5. Add to Streamlit secrets:\n"
+            "```toml\n"
+            'GOOGLE_ADS_DEVELOPER_TOKEN = "..."\n'
+            'GOOGLE_ADS_CLIENT_ID = "..."\n'
+            'GOOGLE_ADS_CLIENT_SECRET = "..."\n'
+            'GOOGLE_ADS_REFRESH_TOKEN = "..."\n'
+            'GOOGLE_ADS_CUSTOMER_ID = "1234567890"\n'
+            "```\n"
+            "6. Reboot the app."
+        )
+
+    # Meta Ads
+    with st.expander("Meta Ads (Facebook + Instagram)  —  connected (mock)", expanded=False):
+        st.markdown(
+            "**To connect your real Meta Ads account:**\n\n"
+            "1. Go to https://developers.facebook.com/apps and create a "
+            "**Business app**.\n"
+            "2. Add the **Marketing API** product to the app.\n"
+            "3. Generate a **long-lived access token** with `ads_read` scope "
+            "(Graph API Explorer → generate token → exchange for long-lived).\n"
+            "4. Find your **Ad Account ID** (Business Manager → Ads Manager → "
+            "settings; format `act_1234567890`).\n"
+            "5. Add to Streamlit secrets:\n"
+            "```toml\n"
+            'META_ACCESS_TOKEN = "EAA..."\n'
+            'META_AD_ACCOUNT_ID = "act_1234567890"\n'
+            "```\n"
+            "6. Reboot the app.\n\n"
+            "Tokens expire every ~60 days; rotate via Business Manager."
+        )
 
     st.divider()
     st.subheader("Try asking")
     examples = [
+        # GA4
         "How many page views did I get in May 2026?",
         "Analyse my user journey and tell me where there's a drop-off.",
         "Go through my GA4 events and tell me my top viewed products.",
         "Analyse all my lead forms and tell me the best and worst performers.",
+        # Google Ads
+        "Which Google Ads campaigns are wasting spend?",
+        "Find my worst-performing Google Ads keywords - candidates for negative keywords.",
+        # Meta Ads
+        "What's my Meta Ads ROAS by campaign?",
+        "Which Meta Ads creatives are working and which are fatigued?",
+        # Cross-channel
+        "Compare Google Ads vs Meta Ads - where should I shift budget?",
     ]
     for ex in examples:
         if st.button(ex, key=f"ex_{hash(ex)}", use_container_width=True):

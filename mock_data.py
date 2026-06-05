@@ -253,3 +253,311 @@ def form_performance(start: _dt.date, end: _dt.date) -> list[dict]:
         })
     rows.sort(key=lambda r: r["conversion_rate_pct"], reverse=True)
     return rows
+
+
+# ============================================================
+# Google Ads mock data
+# ============================================================
+
+GOOGLE_ADS_CAMPAIGNS = [
+    ("Brand - Search",          "search",       "active",   "brand"),
+    ("Non-Brand - Ceramics",    "search",       "active",   "prospecting"),
+    ("Non-Brand - Home Decor",  "search",       "active",   "prospecting"),
+    ("Performance Max - Catalog", "pmax",       "active",   "prospecting"),
+    ("Display Remarketing",     "display",      "active",   "remarketing"),
+    ("YouTube - Brand Story",   "video",        "paused",   "awareness"),
+    ("Shopping - All Products", "shopping",     "active",   "prospecting"),
+]
+
+# Per-campaign profile: daily spend baseline + CTR / CVR / ROAS bands
+GOOGLE_ADS_PROFILES = {
+    "Brand - Search":            {"daily_spend": 28,  "ctr": 0.092, "cvr": 0.068, "roas": 9.8},
+    "Non-Brand - Ceramics":      {"daily_spend": 95,  "ctr": 0.042, "cvr": 0.022, "roas": 2.4},
+    "Non-Brand - Home Decor":    {"daily_spend": 72,  "ctr": 0.038, "cvr": 0.018, "roas": 1.9},
+    "Performance Max - Catalog": {"daily_spend": 140, "ctr": 0.025, "cvr": 0.031, "roas": 3.6},
+    "Display Remarketing":       {"daily_spend": 38,  "ctr": 0.0048,"cvr": 0.041, "roas": 4.2},
+    "YouTube - Brand Story":     {"daily_spend": 0,   "ctr": 0.012, "cvr": 0.004, "roas": 0.6},
+    "Shopping - All Products":   {"daily_spend": 110, "ctr": 0.031, "cvr": 0.024, "roas": 2.8},
+}
+
+GOOGLE_ADS_KEYWORDS = [
+    # (keyword, campaign, match_type)
+    ("ceramic vase",            "Non-Brand - Ceramics", "broad"),
+    ("handmade pottery",        "Non-Brand - Ceramics", "phrase"),
+    ("terracotta planter",      "Non-Brand - Ceramics", "exact"),
+    ("dinner plates set",       "Non-Brand - Home Decor", "phrase"),
+    ("artisan mugs",            "Non-Brand - Home Decor", "broad"),
+    ("modern home decor",       "Non-Brand - Home Decor", "broad"),
+    ("orient ceramics",         "Brand - Search",        "exact"),
+    ("orientceramcs",           "Brand - Search",        "broad"),  # misspelling
+    ("buy ceramic bowl",        "Non-Brand - Ceramics", "phrase"),
+    ("ceramic gift ideas",      "Non-Brand - Ceramics", "broad"),
+    ("wedding registry pottery","Non-Brand - Home Decor", "phrase"),
+    ("cheap pottery",           "Non-Brand - Ceramics", "broad"),
+]
+
+
+def google_ads_campaigns(start: _dt.date, end: _dt.date) -> list[dict]:
+    """Per-campaign Google Ads performance for the range."""
+    days = (end - start).days + 1
+    if days <= 0:
+        return []
+    rows = []
+    for name, ctype, status, intent in GOOGLE_ADS_CAMPAIGNS:
+        p = GOOGLE_ADS_PROFILES[name]
+        spend = p["daily_spend"] * days * random.uniform(0.92, 1.08)
+        if spend == 0:
+            rows.append({
+                "campaign_name": name, "type": ctype, "status": status,
+                "spend": 0.0, "impressions": 0, "clicks": 0, "conversions": 0,
+                "conversion_value": 0.0, "ctr_pct": 0.0, "cpc": 0.0, "cpa": 0.0, "roas": 0.0,
+            })
+            continue
+        avg_cpc = {"search": 1.85, "pmax": 1.10, "display": 0.45, "video": 0.32, "shopping": 0.95}[ctype]
+        avg_cpc *= random.uniform(0.92, 1.08)
+        clicks = int(spend / avg_cpc)
+        impressions = int(clicks / p["ctr"])
+        conversions = int(clicks * p["cvr"])
+        conversion_value = round(spend * p["roas"], 2)
+        rows.append({
+            "campaign_name": name,
+            "type": ctype,
+            "status": status,
+            "intent": intent,
+            "spend": round(spend, 2),
+            "impressions": impressions,
+            "clicks": clicks,
+            "conversions": conversions,
+            "conversion_value": conversion_value,
+            "ctr_pct": round(clicks / impressions * 100, 2) if impressions else 0.0,
+            "cpc": round(spend / clicks, 2) if clicks else 0.0,
+            "cpa": round(spend / conversions, 2) if conversions else 0.0,
+            "roas": round(conversion_value / spend, 2) if spend else 0.0,
+        })
+    rows.sort(key=lambda r: r["spend"], reverse=True)
+    return rows
+
+
+def google_ads_summary(start: _dt.date, end: _dt.date) -> dict:
+    """Account-level totals + averages."""
+    campaigns = google_ads_campaigns(start, end)
+    total_spend = sum(c["spend"] for c in campaigns)
+    total_clicks = sum(c["clicks"] for c in campaigns)
+    total_impr = sum(c["impressions"] for c in campaigns)
+    total_conv = sum(c["conversions"] for c in campaigns)
+    total_value = sum(c["conversion_value"] for c in campaigns)
+    return {
+        "date_range": {"start": start.isoformat(), "end": end.isoformat()},
+        "spend": round(total_spend, 2),
+        "impressions": total_impr,
+        "clicks": total_clicks,
+        "conversions": total_conv,
+        "conversion_value": round(total_value, 2),
+        "ctr_pct": round(total_clicks / total_impr * 100, 2) if total_impr else 0.0,
+        "avg_cpc": round(total_spend / total_clicks, 2) if total_clicks else 0.0,
+        "cpa": round(total_spend / total_conv, 2) if total_conv else 0.0,
+        "roas": round(total_value / total_spend, 2) if total_spend else 0.0,
+        "active_campaigns": sum(1 for c in campaigns if c["status"] == "active"),
+    }
+
+
+def google_ads_keywords(start: _dt.date, end: _dt.date, limit: int = 25) -> list[dict]:
+    """Per-keyword performance with a realistic spread."""
+    days = (end - start).days + 1
+    # variance factor per keyword to make some clearly outperform
+    keyword_quality = {
+        "ceramic vase": 1.0,
+        "handmade pottery": 1.3,        # strong
+        "terracotta planter": 1.5,      # strongest
+        "dinner plates set": 1.1,
+        "artisan mugs": 0.9,
+        "modern home decor": 0.55,      # broad, weak
+        "orient ceramics": 2.4,         # brand, very strong
+        "orientceramcs": 1.8,           # brand misspelling
+        "buy ceramic bowl": 1.2,
+        "ceramic gift ideas": 0.7,
+        "wedding registry pottery": 1.4,
+        "cheap pottery": 0.35,          # bad-intent traffic
+    }
+    rows = []
+    for kw, campaign, match in GOOGLE_ADS_KEYWORDS:
+        q = keyword_quality.get(kw, 1.0)
+        base_impr = int(280 * days * random.uniform(0.85, 1.15))
+        impr = base_impr if "Brand" not in campaign else int(base_impr * 0.35)
+        ctr = (0.08 if "Brand" in campaign else 0.038) * random.uniform(0.7, 1.2)
+        clicks = int(impr * ctr)
+        avg_cpc = (0.55 if "Brand" in campaign else 1.95) * random.uniform(0.85, 1.2)
+        spend = round(clicks * avg_cpc, 2)
+        cvr = (0.072 if "Brand" in campaign else 0.022) * q * random.uniform(0.7, 1.3)
+        conversions = int(clicks * cvr)
+        conv_value = round(spend * (8.0 if "Brand" in campaign else 1.0) * q * random.uniform(0.8, 1.25), 2)
+        rows.append({
+            "keyword": kw,
+            "match_type": match,
+            "campaign": campaign,
+            "impressions": impr,
+            "clicks": clicks,
+            "ctr_pct": round(clicks / impr * 100, 2) if impr else 0.0,
+            "cpc": round(spend / clicks, 2) if clicks else 0.0,
+            "spend": spend,
+            "conversions": conversions,
+            "conversion_value": conv_value,
+            "cpa": round(spend / conversions, 2) if conversions else 0.0,
+            "roas": round(conv_value / spend, 2) if spend else 0.0,
+        })
+    rows.sort(key=lambda r: r["spend"], reverse=True)
+    return rows[:limit]
+
+
+# ============================================================
+# Meta Ads mock data
+# ============================================================
+
+META_ADS_CAMPAIGNS = [
+    # (name, objective, status)
+    ("Spring Conversion - Catalog",        "sales",         "active"),
+    ("Retargeting - 30d Site Visitors",    "sales",         "active"),
+    ("Cold Audience - Lookalike 1%",       "sales",         "active"),
+    ("Awareness - Brand Story Video",      "awareness",     "active"),
+    ("Traffic - Blog Articles",            "traffic",       "active"),
+    ("Leads - Wholesale Inquiry",          "leads",         "active"),
+    ("Engagement - Product UGC",           "engagement",    "paused"),
+]
+
+META_ADS_PROFILES = {
+    "Spring Conversion - Catalog":     {"daily_spend": 165, "ctr": 0.014, "cvr": 0.022, "roas": 3.1, "cpm": 11.2},
+    "Retargeting - 30d Site Visitors": {"daily_spend": 58,  "ctr": 0.028, "cvr": 0.045, "roas": 5.8, "cpm": 13.5},
+    "Cold Audience - Lookalike 1%":    {"daily_spend": 220, "ctr": 0.011, "cvr": 0.012, "roas": 1.6, "cpm": 9.8},
+    "Awareness - Brand Story Video":   {"daily_spend": 72,  "ctr": 0.008, "cvr": 0.003, "roas": 0.4, "cpm": 6.4},
+    "Traffic - Blog Articles":         {"daily_spend": 35,  "ctr": 0.022, "cvr": 0.006, "roas": 0.9, "cpm": 5.2},
+    "Leads - Wholesale Inquiry":       {"daily_spend": 48,  "ctr": 0.017, "cvr": 0.038, "roas": 0.0, "cpm": 12.1},
+    "Engagement - Product UGC":        {"daily_spend": 0,   "ctr": 0.034, "cvr": 0.002, "roas": 0.3, "cpm": 4.8},
+}
+
+META_ADS_CREATIVES = [
+    # (creative_name, format, campaign)
+    ("Lifestyle Vase Hero",           "image",    "Spring Conversion - Catalog"),
+    ("Dinner Set Carousel v2",        "carousel", "Spring Conversion - Catalog"),
+    ("Pottery-in-use Video 15s",      "video",    "Spring Conversion - Catalog"),
+    ("Retargeting - Last Viewed",     "dpa",      "Retargeting - 30d Site Visitors"),
+    ("Founder Story Short",           "video",    "Awareness - Brand Story Video"),
+    ("Studio B-roll Reel",            "video",    "Awareness - Brand Story Video"),
+    ("Care Guide Blog Promo",         "image",    "Traffic - Blog Articles"),
+    ("Cold Lookalike Carousel A",     "carousel", "Cold Audience - Lookalike 1%"),
+    ("Cold Lookalike Static",         "image",    "Cold Audience - Lookalike 1%"),
+    ("Wholesale Lead Form Hero",      "image",    "Leads - Wholesale Inquiry"),
+    ("UGC Customer Reel",             "video",    "Engagement - Product UGC"),
+]
+
+
+def meta_ads_campaigns(start: _dt.date, end: _dt.date) -> list[dict]:
+    days = (end - start).days + 1
+    if days <= 0:
+        return []
+    rows = []
+    for name, objective, status in META_ADS_CAMPAIGNS:
+        p = META_ADS_PROFILES[name]
+        spend = p["daily_spend"] * days * random.uniform(0.92, 1.08)
+        if spend == 0:
+            rows.append({
+                "campaign_name": name, "objective": objective, "status": status,
+                "spend": 0.0, "impressions": 0, "reach": 0, "clicks": 0,
+                "conversions": 0, "conversion_value": 0.0,
+                "ctr_pct": 0.0, "cpm": 0.0, "cpc": 0.0, "cpa": 0.0, "roas": 0.0,
+            })
+            continue
+        impressions = int(spend / p["cpm"] * 1000)
+        reach = int(impressions * random.uniform(0.42, 0.58))
+        clicks = int(impressions * p["ctr"])
+        conversions = int(clicks * p["cvr"])
+        conv_value = round(spend * p["roas"], 2)
+        rows.append({
+            "campaign_name": name,
+            "objective": objective,
+            "status": status,
+            "spend": round(spend, 2),
+            "impressions": impressions,
+            "reach": reach,
+            "frequency": round(impressions / reach, 2) if reach else 0.0,
+            "clicks": clicks,
+            "conversions": conversions,
+            "conversion_value": conv_value,
+            "ctr_pct": round(clicks / impressions * 100, 2) if impressions else 0.0,
+            "cpm": round(spend / impressions * 1000, 2) if impressions else 0.0,
+            "cpc": round(spend / clicks, 2) if clicks else 0.0,
+            "cpa": round(spend / conversions, 2) if conversions else 0.0,
+            "roas": round(conv_value / spend, 2) if spend else 0.0,
+        })
+    rows.sort(key=lambda r: r["spend"], reverse=True)
+    return rows
+
+
+def meta_ads_summary(start: _dt.date, end: _dt.date) -> dict:
+    campaigns = meta_ads_campaigns(start, end)
+    total_spend = sum(c["spend"] for c in campaigns)
+    total_impr = sum(c["impressions"] for c in campaigns)
+    total_clicks = sum(c["clicks"] for c in campaigns)
+    total_conv = sum(c["conversions"] for c in campaigns)
+    total_value = sum(c["conversion_value"] for c in campaigns)
+    return {
+        "date_range": {"start": start.isoformat(), "end": end.isoformat()},
+        "spend": round(total_spend, 2),
+        "impressions": total_impr,
+        "clicks": total_clicks,
+        "conversions": total_conv,
+        "conversion_value": round(total_value, 2),
+        "ctr_pct": round(total_clicks / total_impr * 100, 2) if total_impr else 0.0,
+        "avg_cpc": round(total_spend / total_clicks, 2) if total_clicks else 0.0,
+        "avg_cpm": round(total_spend / total_impr * 1000, 2) if total_impr else 0.0,
+        "cpa": round(total_spend / total_conv, 2) if total_conv else 0.0,
+        "roas": round(total_value / total_spend, 2) if total_spend else 0.0,
+        "active_campaigns": sum(1 for c in campaigns if c["status"] == "active"),
+    }
+
+
+def meta_ads_creatives(start: _dt.date, end: _dt.date) -> list[dict]:
+    """Per-creative performance for ad fatigue / creative testing analysis."""
+    days = (end - start).days + 1
+    # crafted spread so winners and losers are clear
+    creative_quality = {
+        "Lifestyle Vase Hero":         1.4,
+        "Dinner Set Carousel v2":      1.7,   # top
+        "Pottery-in-use Video 15s":    1.2,
+        "Retargeting - Last Viewed":   1.6,
+        "Founder Story Short":         0.45,
+        "Studio B-roll Reel":          0.35,  # underperformer
+        "Care Guide Blog Promo":       0.9,
+        "Cold Lookalike Carousel A":   1.0,
+        "Cold Lookalike Static":       0.7,
+        "Wholesale Lead Form Hero":    1.3,
+        "UGC Customer Reel":           0.6,
+    }
+    rows = []
+    for cname, cformat, campaign in META_ADS_CREATIVES:
+        q = creative_quality.get(cname, 1.0)
+        camp_profile = META_ADS_PROFILES.get(campaign, {"daily_spend": 50, "ctr": 0.015, "cvr": 0.02, "roas": 2.0, "cpm": 10.0})
+        # split campaign budget across creatives loosely
+        spend = camp_profile["daily_spend"] * days * random.uniform(0.08, 0.32) * (0.7 if q < 0.7 else 1.0)
+        if spend < 5:
+            continue
+        impressions = int(spend / camp_profile["cpm"] * 1000)
+        ctr = camp_profile["ctr"] * q * random.uniform(0.8, 1.2)
+        clicks = int(impressions * ctr)
+        cvr = camp_profile["cvr"] * q * random.uniform(0.8, 1.2)
+        conversions = int(clicks * cvr)
+        conv_value = round(spend * camp_profile["roas"] * q * random.uniform(0.85, 1.15), 2)
+        rows.append({
+            "creative_name": cname,
+            "format": cformat,
+            "campaign": campaign,
+            "spend": round(spend, 2),
+            "impressions": impressions,
+            "clicks": clicks,
+            "ctr_pct": round(clicks / impressions * 100, 2) if impressions else 0.0,
+            "conversions": conversions,
+            "conversion_value": conv_value,
+            "cpa": round(spend / conversions, 2) if conversions else 0.0,
+            "roas": round(conv_value / spend, 2) if spend else 0.0,
+        })
+    rows.sort(key=lambda r: r["roas"], reverse=True)
+    return rows

@@ -369,15 +369,27 @@ body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", R
       <option>claude-opus-4-8</option>
     </select>
 
-    <h3>Data source</h3>
-    <div class="status">Connected: Mock GA4 (demo data)</div>
-    <p class="caption" style="margin-top:6px;">Date range: 2026-03-01 to 2026-06-04</p>
+    <h3>Data sources</h3>
+    <p class="caption" style="margin-top:0;">Demo range: 2026-03-01 to 2026-06-04</p>
+    <details style="background:white;border:1px solid #ddd;padding:8px 12px;border-radius:6px;margin-bottom:6px;font-size:13px;">
+      <summary style="cursor:pointer;color:#155724;font-weight:500;">Google Analytics 4  —  connected (mock)</summary>
+      <div style="margin-top:8px;color:#666;font-size:12px;">Enable GA4 Data API, create service account, set GA4_PROPERTY_ID + service account JSON in secrets.</div>
+    </details>
+    <details style="background:white;border:1px solid #ddd;padding:8px 12px;border-radius:6px;margin-bottom:6px;font-size:13px;">
+      <summary style="cursor:pointer;color:#155724;font-weight:500;">Google Ads  —  connected (mock)</summary>
+      <div style="margin-top:8px;color:#666;font-size:12px;">Get developer token, OAuth2 client, refresh token. Set GOOGLE_ADS_* secrets.</div>
+    </details>
+    <details style="background:white;border:1px solid #ddd;padding:8px 12px;border-radius:6px;margin-bottom:6px;font-size:13px;">
+      <summary style="cursor:pointer;color:#155724;font-weight:500;">Meta Ads (FB + IG)  —  connected (mock)</summary>
+      <div style="margin-top:8px;color:#666;font-size:12px;">Create Business app, Marketing API, long-lived token. Set META_ACCESS_TOKEN + META_AD_ACCOUNT_ID.</div>
+    </details>
 
     <h3>Try asking</h3>
     <div class="example">How many page views did I get in May 2026?</div>
     <div class="example">Analyse my user journey and tell me where there's a drop-off.</div>
-    <div class="example">Go through my GA4 events and tell me my top viewed products.</div>
-    <div class="example">Analyse all my lead forms and tell me the best and worst performers.</div>
+    <div class="example">Which Google Ads campaigns are wasting spend?</div>
+    <div class="example">Which Meta Ads creatives are working and which are fatigued?</div>
+    <div class="example">Compare Google Ads vs Meta Ads - where should I shift budget?</div>
   </aside>
   <main class="main">
     <h2>Chat preview</h2>
