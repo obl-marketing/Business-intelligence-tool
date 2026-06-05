@@ -7,3 +7,7 @@ venv/
 *.json
 !package.json
 service-account-*.json
+
+# Preview artifacts (regenerate with `python3 build_preview.py`)
+preview.html
+preview_*.png
