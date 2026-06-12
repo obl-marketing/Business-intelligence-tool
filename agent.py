@@ -4,17 +4,15 @@ The chat() function yields events of the form:
   {"type": "text", "text": str}
   {"type": "tool_use", "name": str, "input": dict}
   {"type": "tool_result", "name": str, "output": str}
+  {"type": "chart", "spec": dict}      - a chart the UI should render inline
   {"type": "done"}
 
 Messages are passed in normalized text-only form across turns:
   [{"role": "user"|"assistant", "content": "string"}, ...]
-
-The provider-specific tool-use loop happens inside each implementation and
-is not surfaced as messages between turns (each new user message gets a fresh
-agent loop with just the text history for context).
 """
 from __future__ import annotations
 import datetime as _dt
+import json
 import os
 from typing import Iterator
 
@@ -22,10 +20,75 @@ from tools import TOOL_SCHEMAS, run_tool
 import mock_data
 
 
+# ---------------------------------------------------------------
+# Chart tool - executed by the UI, not the data layer
+# ---------------------------------------------------------------
+
+CHART_TOOL = {
+    "name": "render_chart",
+    "description": (
+        "Render a chart inline in the chat for the user. Use this whenever you present "
+        "a trend over time (line), a comparison across categories (bar), or a funnel/"
+        "composition (bar). Charts make your analysis dramatically easier to absorb - "
+        "use at least one chart in any analysis involving more than 4 numbers. "
+        "Call this AFTER you have fetched the data with other tools, using the real "
+        "numbers from those tool results."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "chart_type": {
+                "type": "string",
+                "enum": ["line", "bar", "area"],
+                "description": "line = trends over time; bar = category comparison or funnel; area = cumulative/volume over time",
+            },
+            "title": {"type": "string", "description": "Short chart title"},
+            "x": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "X-axis labels (dates, category names, funnel steps...)",
+            },
+            "series": {
+                "type": "array",
+                "description": "One or more data series, each with a name and values aligned to x",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "values": {"type": "array", "items": {"type": "number"}},
+                    },
+                    "required": ["name", "values"],
+                },
+            },
+        },
+        "required": ["chart_type", "title", "x", "series"],
+    },
+}
+
+ALL_TOOLS = TOOL_SCHEMAS + [CHART_TOOL]
+
+
+def _execute_tool(name: str, args: dict) -> tuple[str, dict | None]:
+    """Run a tool. Returns (result_json, chart_spec_or_None)."""
+    if name == "render_chart":
+        # Validate minimally; UI does the rendering
+        ok = (
+            isinstance(args.get("x"), list)
+            and isinstance(args.get("series"), list)
+            and all(isinstance(s, dict) and "values" in s for s in args["series"])
+        )
+        if not ok:
+            return json.dumps({"error": "Invalid chart spec: need x[] and series[] with values"}), None
+        return json.dumps({"status": "chart rendered to user"}), args
+    return run_tool(name, args), None
+
+
 def system_prompt() -> str:
     today = _dt.date.today().isoformat()
-    return f"""You are an AI Data Scientist embedded in a Business Intelligence tool. \
-The user has connected three marketing data sources and asks you questions through chat.
+    return f"""You are a senior data analyst and growth strategist embedded in a Business \
+Intelligence tool. The user has connected their marketing data sources and chats with you \
+to understand and grow their business. Many users are not analysts - your job is to make \
+data feel simple while the analysis underneath stays rigorous.
 
 Connected sources:
 - **Google Analytics 4** - site traffic, events, funnels, products, lead forms
@@ -35,28 +98,52 @@ Connected sources:
 Today's date is {today}. The available data covers {mock_data.DATA_START.isoformat()} \
 to {mock_data.DATA_END.isoformat()}.
 
-How you work:
-1. When a user asks a question, decide which tools to call. You can call multiple tools \
-   across multiple turns - chain them as needed. For cross-channel questions (e.g. \
-   "where should I shift budget?"), pull data from multiple sources and compare.
-2. Always ground your answers in the actual data returned by tools. Cite specific numbers.
-3. When the user asks for analysis (drop-offs, ROAS, top performers, etc.), do not just \
-   dump the data. Interpret it: explain WHAT the numbers mean, WHY they might be \
-   happening, and WHAT the user should do about it.
-4. Structure deeper analyses as:
-   - **Findings** (the key numbers, with evidence)
-   - **Analysis** (your interpretation of what's driving the numbers)
-   - **Recommended Strategies** (concrete, prioritised actions the user can take)
-5. Use markdown formatting. Tables for comparative data. Bold for key numbers.
-6. If a question is ambiguous (e.g. "this month" without specifying), pick a reasonable \
-   range and state your assumption.
-7. If the user asks about a period outside the available data range, say so and offer \
-   the closest available range.
-8. For ads questions, always think about ROAS, CPA, and wasted spend. For organic \
-   (GA4) questions, think about conversion rate, drop-off, and traffic mix.
+# How to answer
 
-You are not just a query tool - you are an analyst. Your job is to find loopholes, \
-spot opportunities, and help the user grow their business with evidence-backed strategy."""
+**Always follow this sequence:**
+1. Call the data tools you need. Chain multiple tools across turns when the question \
+spans sources or needs comparison. Never answer from assumption - every number you state \
+must come from a tool result.
+2. Render at least one chart with `render_chart` whenever the answer involves a trend, \
+comparison, funnel, or more than ~4 numbers. Build charts from the REAL numbers in your \
+tool results. Pick the right type: line for trends over time, bar for comparisons and \
+funnels, area for volume.
+3. Write the report.
+
+**Report structure** (for analytical questions; simple lookups can be shorter):
+
+Start with a 1-2 sentence **direct answer** in bold-highlighted plain language - the \
+thing the user would tell their boss.
+
+Then:
+- **Findings** - the key numbers as evidence. Use tables for comparisons. Bold the \
+numbers that matter. Every claim must trace to tool data.
+- **Why this is happening** - your reasoning, stated step by step. Connect numbers to \
+causes ("engagement rate held at 75% while sessions dipped, so the traffic loss was \
+volume, not quality - that points to acquisition, not the site itself"). Compare against \
+industry benchmarks where you know them, and say when you're inferring vs. when the data \
+proves it.
+- **What to do about it** - 3-5 concrete, prioritised recommendations. Each one must \
+reference the evidence that justifies it and state the expected impact. No generic advice.
+
+End EVERY analytical answer with **"Want to dig deeper?"** - 2-3 specific follow-up \
+questions you could answer next, phrased from the user's perspective (e.g. "Which \
+channels drove the May traffic dip?"). These keep the analysis moving.
+
+# Style rules
+- Simple words, short sentences. Explain any metric the first time you use it \
+("bounce rate - the share of visitors who leave without interacting").
+- Numbers formatted for reading: 92,431 not 92431; 61% not 0.61.
+- Percentages and rates always get context: is it good, bad, or typical?
+- If the question is ambiguous, state your assumption and proceed - then offer the \
+alternative reading as a follow-up question.
+- If data for the requested period doesn't exist, say so plainly and analyse the \
+closest available range instead.
+- When the user asks something the data can't answer, say what's missing and which \
+source would need to be connected.
+
+You are not a query tool - you are the user's analyst. Find loopholes, spot \
+opportunities, quantify problems, and back every strategy with evidence."""
 
 
 def chat(
@@ -85,12 +172,12 @@ def _chat_anthropic(messages, model, api_key) -> Iterator[dict]:
 
     working_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
 
-    for _ in range(10):
+    for _ in range(12):
         response = client.messages.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=8192,
             system=system_prompt(),
-            tools=TOOL_SCHEMAS,
+            tools=ALL_TOOLS,
             messages=working_messages,
         )
 
@@ -109,8 +196,11 @@ def _chat_anthropic(messages, model, api_key) -> Iterator[dict]:
         for block in response.content:
             if block.type != "tool_use":
                 continue
-            result = run_tool(block.name, block.input)
-            yield {"type": "tool_result", "name": block.name, "output": result}
+            result, chart_spec = _execute_tool(block.name, block.input)
+            if chart_spec is not None:
+                yield {"type": "chart", "spec": chart_spec}
+            else:
+                yield {"type": "tool_result", "name": block.name, "output": result}
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": block.id,
@@ -128,7 +218,6 @@ def _chat_anthropic(messages, model, api_key) -> Iterator[dict]:
 def _claude_schema_to_gemini(schema: dict) -> dict:
     """Gemini accepts OpenAPI-style schemas — same shape as Anthropic's input_schema."""
     if not schema.get("properties"):
-        # Gemini doesn't accept empty-property objects; insert a dummy optional
         return {
             "type": "object",
             "properties": {
@@ -148,18 +237,16 @@ def _chat_gemini(messages, model, api_key) -> Iterator[dict]:
     client = genai.Client(api_key=api_key)
     model = model or os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
-    # Build the Gemini tool config from our shared TOOL_SCHEMAS
     function_declarations = [
         gt.FunctionDeclaration(
             name=t["name"],
             description=t["description"],
             parameters=_claude_schema_to_gemini(t["input_schema"]),
         )
-        for t in TOOL_SCHEMAS
+        for t in ALL_TOOLS
     ]
     tools_config = [gt.Tool(function_declarations=function_declarations)]
 
-    # Build initial contents (prior text turns)
     contents = []
     for m in messages:
         role = "user" if m["role"] == "user" else "model"
@@ -170,7 +257,7 @@ def _chat_gemini(messages, model, api_key) -> Iterator[dict]:
         tools=tools_config,
     )
 
-    for _ in range(10):
+    for _ in range(12):
         response = client.models.generate_content(
             model=model,
             contents=contents,
@@ -190,7 +277,7 @@ def _chat_gemini(messages, model, api_key) -> Iterator[dict]:
             fc = getattr(part, "function_call", None)
             if fc:
                 args = dict(fc.args) if fc.args else {}
-                args.pop("_unused", None)  # remove our schema dummy if Gemini fills it
+                args.pop("_unused", None)
                 yield {"type": "tool_use", "name": fc.name, "input": args}
                 model_parts.append({"function_call": {"name": fc.name, "args": args}})
                 tool_calls.append((fc.name, args))
@@ -203,8 +290,11 @@ def _chat_gemini(messages, model, api_key) -> Iterator[dict]:
 
         response_parts = []
         for name, args in tool_calls:
-            result = run_tool(name, args)
-            yield {"type": "tool_result", "name": name, "output": result}
+            result, chart_spec = _execute_tool(name, args)
+            if chart_spec is not None:
+                yield {"type": "chart", "spec": chart_spec}
+            else:
+                yield {"type": "tool_result", "name": name, "output": result}
             response_parts.append({
                 "function_response": {
                     "name": name,

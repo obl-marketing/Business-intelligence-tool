@@ -3,12 +3,33 @@ from __future__ import annotations
 import json
 import os
 
+import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
 from agent import chat
 
 load_dotenv()
+
+
+def _render_chart(spec: dict) -> None:
+    """Render a chart spec emitted by the agent using Streamlit native charts."""
+    try:
+        x = spec["x"]
+        df = pd.DataFrame(
+            {s["name"]: s["values"] for s in spec["series"]},
+            index=x,
+        )
+        st.caption(f"**{spec.get('title', 'Chart')}**")
+        ctype = spec.get("chart_type", "bar")
+        if ctype == "line":
+            st.line_chart(df)
+        elif ctype == "area":
+            st.area_chart(df)
+        else:
+            st.bar_chart(df)
+    except Exception as e:
+        st.warning(f"Could not render chart: {e}")
 
 
 def _get_secret(key: str, default: str = "") -> str:
@@ -167,8 +188,10 @@ def _render_blocks(blocks: list[dict]) -> None:
     for b in blocks:
         if b["kind"] == "text":
             st.markdown(b["content"])
+        elif b["kind"] == "chart":
+            _render_chart(b["spec"])
         elif b["kind"] == "tool":
-            with st.expander(f"Tool: `{b['name']}`  -  args: `{json.dumps(b['input'])}`"):
+            with st.expander(f"Evidence: `{b['name']}`  -  args: `{json.dumps(b['input'])}`"):
                 try:
                     st.json(json.loads(b["output"]))
                 except Exception:
@@ -217,11 +240,18 @@ if prompt:
                     accumulated_text += event["text"]
                     display_blocks.append({"kind": "text", "content": event["text"]})
                     text_area.markdown(accumulated_text)
+                elif etype == "chart":
+                    text_area = st.empty()
+                    accumulated_text = ""
+                    _render_chart(event["spec"])
+                    display_blocks.append({"kind": "chart", "spec": event["spec"]})
                 elif etype == "tool_use":
+                    if event["name"] == "render_chart":
+                        continue  # chart rendering is shown via the chart event itself
                     # Close current text region, open a status box for the tool
                     text_area = st.empty()
                     accumulated_text = ""
-                    placeholder = st.status(f"Calling `{event['name']}`...", expanded=False)
+                    placeholder = st.status(f"Gathering evidence: `{event['name']}`...", expanded=False)
                     call_index = len(display_blocks)
                     tool_status_by_call[call_index] = placeholder
                     display_blocks.append({
@@ -243,7 +273,7 @@ if prompt:
                                         st.json(json.loads(event["output"]))
                                     except Exception:
                                         st.code(event["output"])
-                                placeholder.update(label=f"Done: `{event['name']}`", state="complete")
+                                placeholder.update(label=f"Evidence: `{event['name']}`", state="complete")
                             break
                     text_area = st.empty()
                 elif etype == "done":
