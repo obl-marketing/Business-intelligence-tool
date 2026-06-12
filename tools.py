@@ -221,12 +221,26 @@ TOOL_SCHEMAS = [
 
 # ---- Tool dispatch ----
 
+def _ga4_live() -> bool:
+    import ga4_client
+    return ga4_client.is_active()
+
+
 def run_tool(name: str, args: dict[str, Any]) -> str:
     """Execute a tool by name and return a JSON string for the agent."""
+    import ga4_client
     try:
         if name == "query_pageviews":
             start = _parse_date(args["start_date"])
             end = _parse_date(args["end_date"])
+            if _ga4_live():
+                if args["group_by"] == "date":
+                    data = ga4_client.pageviews_by_date(args["start_date"], args["end_date"])
+                    total = sum(r["page_views"] for r in data)
+                    return json.dumps({"rows": data, "total_page_views": total,
+                                       "days": len(data), "source": "ga4_live"})
+                data = ga4_client.pageviews_by_page(args["start_date"], args["end_date"])
+                return json.dumps({"rows": data, "total_pages": len(data), "source": "ga4_live"})
             if args["group_by"] == "date":
                 data = mock_data.pageviews_by_date(start, end)
                 total = sum(r["page_views"] for r in data)
@@ -238,15 +252,28 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
         if name == "query_events":
             start = _parse_date(args["start_date"])
             end = _parse_date(args["end_date"])
+            if _ga4_live():
+                data = ga4_client.events(args["start_date"], args["end_date"], args.get("event_name"))
+                return json.dumps({"rows": data, "source": "ga4_live"})
             data = mock_data.events(start, end, args.get("event_name"))
             return json.dumps({"rows": data})
 
         if name == "analyze_user_journey":
             start = _parse_date(args["start_date"])
             end = _parse_date(args["end_date"])
-            data = mock_data.user_journey_funnel(start, end)
+            if _ga4_live():
+                data = ga4_client.user_journey_funnel(args["start_date"], args["end_date"])
+            else:
+                data = mock_data.user_journey_funnel(start, end)
+            if not data:
+                return json.dumps({
+                    "funnel": [],
+                    "note": "No funnel events (view_item/add_to_cart/begin_checkout/purchase) "
+                            "found in this property for the period. E-commerce event tracking "
+                            "may not be set up.",
+                })
             # surface biggest drop for convenience
-            biggest_drop = max(data[1:], key=lambda s: s["drop_off_from_previous_pct"])
+            biggest_drop = max(data[1:], key=lambda s: s["drop_off_from_previous_pct"]) if len(data) > 1 else data[0]
             return json.dumps({
                 "funnel": data,
                 "biggest_drop_off": {
@@ -254,28 +281,63 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                     "step_name": biggest_drop["name"],
                     "drop_off_pct": biggest_drop["drop_off_from_previous_pct"],
                 },
+                "source": "ga4_live" if _ga4_live() else "mock",
             })
 
         if name == "query_top_products":
             start = _parse_date(args["start_date"])
             end = _parse_date(args["end_date"])
             limit = int(args.get("limit", 10))
+            if _ga4_live():
+                data = ga4_client.top_products(args["start_date"], args["end_date"], limit=limit)
+                if not data:
+                    return json.dumps({
+                        "rows": [],
+                        "note": "No item/e-commerce data found. The GA4 property may not have "
+                                "e-commerce events (view_item with items[]) implemented.",
+                    })
+                return json.dumps({"rows": data, "source": "ga4_live"})
             data = mock_data.top_products(start, end, limit=limit)
             return json.dumps({"rows": data})
 
         if name == "query_form_performance":
             start = _parse_date(args["start_date"])
             end = _parse_date(args["end_date"])
-            data = mock_data.form_performance(start, end)
+            if _ga4_live():
+                data = ga4_client.form_performance(args["start_date"], args["end_date"])
+                if not data:
+                    return json.dumps({
+                        "rows": [],
+                        "note": "No form events (form_start/form_submit/generate_lead) found. "
+                                "Enable Enhanced Measurement > Form interactions in GA4, or "
+                                "push custom form events via GTM.",
+                    })
+            else:
+                data = mock_data.form_performance(start, end)
             best = max(data, key=lambda r: r["conversion_rate_pct"])
             worst = min(data, key=lambda r: r["conversion_rate_pct"])
             return json.dumps({
                 "rows": data,
                 "best_form": best,
                 "worst_form": worst,
+                "source": "ga4_live" if _ga4_live() else "mock",
             })
 
         if name == "get_data_coverage":
+            if _ga4_live():
+                return json.dumps({
+                    "google_analytics": {
+                        "source": "ga4_live",
+                        "property_id": __import__("os").environ.get("GA4_PROPERTY_ID"),
+                        "note": "Live GA4 property. Data typically retained 14 months.",
+                    },
+                    "google_ads": {"source": "mock",
+                                   "data_start": mock_data.DATA_START.isoformat(),
+                                   "data_end": mock_data.DATA_END.isoformat()},
+                    "meta_ads": {"source": "mock",
+                                 "data_start": mock_data.DATA_START.isoformat(),
+                                 "data_end": mock_data.DATA_END.isoformat()},
+                })
             return json.dumps({
                 "data_start": mock_data.DATA_START.isoformat(),
                 "data_end": mock_data.DATA_END.isoformat(),
@@ -335,3 +397,10 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
         return json.dumps({"error": f"Missing required argument: {e}"})
     except ValueError as e:
         return json.dumps({"error": f"Invalid argument: {e}"})
+    except Exception as e:  # GA4 API errors (auth, quota, bad property...)
+        return json.dumps({
+            "error": f"{type(e).__name__}: {e}",
+            "hint": "If this is a GA4 permission/auth error, verify the service account "
+                    "has Viewer access on the property, the Analytics Data API is enabled, "
+                    "and GA4_PROPERTY_ID is the numeric property ID (not the G-XXXX measurement ID).",
+        })

@@ -83,6 +83,25 @@ def _execute_tool(name: str, args: dict) -> tuple[str, dict | None]:
     return run_tool(name, args), None
 
 
+def _data_coverage_note() -> str:
+    ga4_live = os.environ.get("DATA_SOURCE", "mock").lower() == "ga4" and bool(
+        os.environ.get("GA4_PROPERTY_ID")
+    )
+    if ga4_live:
+        return (
+            "**Google Analytics 4 is LIVE** - queries hit the user's real GA4 property, "
+            "which typically retains up to 14 months of history. "
+            "Google Ads and Meta Ads are still DEMO data covering "
+            f"{mock_data.DATA_START.isoformat()} to {mock_data.DATA_END.isoformat()} - "
+            "if the user asks about ads, answer from the demo data but remind them it is "
+            "sample data until those sources are connected."
+        )
+    return (
+        f"The available data covers {mock_data.DATA_START.isoformat()} to "
+        f"{mock_data.DATA_END.isoformat()} (demo dataset)."
+    )
+
+
 def system_prompt() -> str:
     today = _dt.date.today().isoformat()
     return f"""You are a senior data analyst and growth strategist embedded in a Business \
@@ -95,8 +114,7 @@ Connected sources:
 - **Google Ads** - account/campaign/keyword performance (spend, clicks, conversions, ROAS)
 - **Meta Ads** (Facebook + Instagram) - campaigns and per-creative performance
 
-Today's date is {today}. The available data covers {mock_data.DATA_START.isoformat()} \
-to {mock_data.DATA_END.isoformat()}.
+Today's date is {today}. {_data_coverage_note()}
 
 # How to answer
 

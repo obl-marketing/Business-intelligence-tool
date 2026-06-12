@@ -42,6 +42,20 @@ def _get_secret(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
 
 
+# Copy data-source secrets into env vars so the non-Streamlit layers
+# (tools.py / ga4_client.py) can read them.
+for _key in ("DATA_SOURCE", "GA4_PROPERTY_ID", "GA4_SERVICE_ACCOUNT_JSON"):
+    _val = _get_secret(_key)
+    if _val:
+        os.environ[_key] = _val
+
+_GA4_LIVE = (
+    os.environ.get("DATA_SOURCE", "mock").lower() == "ga4"
+    and bool(os.environ.get("GA4_PROPERTY_ID"))
+    and bool(os.environ.get("GA4_SERVICE_ACCOUNT_JSON"))
+)
+
+
 PROVIDER_MODELS = {
     "anthropic": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
     "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"],
@@ -93,7 +107,13 @@ with st.sidebar:
     st.subheader("Data sources")
     st.caption("Demo date range: 2026-03-01 to 2026-06-04")
 
-    with st.expander("Google Analytics 4  —  connected (mock)", expanded=False):
+    _ga4_label = (
+        "Google Analytics 4  —  ✅ LIVE" if _GA4_LIVE
+        else "Google Analytics 4  —  connected (mock)"
+    )
+    with st.expander(_ga4_label, expanded=False):
+        if _GA4_LIVE:
+            st.success(f"Querying live property {os.environ.get('GA4_PROPERTY_ID')}")
         st.markdown(
             "**To connect your real GA4 property:**\n\n"
             "1. In Google Cloud Console, enable the **Google Analytics Data API**.\n"
