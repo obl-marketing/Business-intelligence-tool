@@ -44,7 +44,7 @@ def _get_secret(key: str, default: str = "") -> str:
 
 # Copy data-source secrets into env vars so the non-Streamlit layers
 # (tools.py / ga4_client.py) can read them.
-for _key in ("DATA_SOURCE", "GA4_PROPERTY_ID", "GA4_SERVICE_ACCOUNT_JSON"):
+for _key in ("DATA_SOURCE", "GA4_PROPERTY_ID", "GA4_SERVICE_ACCOUNT_JSON", "SITE_BASE_URL"):
     _val = _get_secret(_key)
     if _val:
         os.environ[_key] = _val
@@ -106,6 +106,27 @@ with st.sidebar:
     st.divider()
     st.subheader("Data sources")
     st.caption("Demo date range: 2026-03-01 to 2026-06-04")
+
+    _site_base = os.environ.get("SITE_BASE_URL", "").rstrip("/")
+    _frontend_label = (
+        f"Frontend audit  —  ✅ ENABLED ({_site_base})" if _site_base
+        else "Frontend audit  —  available (set SITE_BASE_URL)"
+    )
+    with st.expander(_frontend_label, expanded=False):
+        st.markdown(
+            "**What it does:** the agent can fetch any page on your site live and "
+            "read its CTAs, forms, trust signals, copy, headings, schema, and "
+            "structure. Combined with the GA4 behavior data, it can give specific "
+            "UX/UI/conversion feedback - e.g. *'page X has 65% bounce in GA4 AND "
+            "the audit shows the only CTA is below 1,400 words → fix Y.'*\n\n"
+            "**Setup (optional but recommended):** add your site to Streamlit secrets so "
+            "the agent can audit by path:\n"
+            "```toml\nSITE_BASE_URL = \"https://www.yoursite.com\"\n```\n"
+            "Without it, you'd pass full URLs every time (e.g. *'audit "
+            "https://yoursite.com/products/abc'*).\n\n"
+            "**Limitation:** sees server-rendered HTML only. JavaScript-injected "
+            "content (SPA modals, lazy-loaded sections, A/B variants) is not captured."
+        )
 
     _ga4_label = (
         "Google Analytics 4  —  ✅ LIVE" if _GA4_LIVE
@@ -174,14 +195,15 @@ with st.sidebar:
     st.divider()
     st.subheader("Try asking")
     examples = [
-        "How many page views did I get in May 2026?",
+        "How is my website traffic doing in the last 30 days?",
+        "Break down my traffic by channel.",
         "Analyse my user journey and tell me where there's a drop-off.",
-        "Go through my GA4 events and tell me my top viewed products.",
-        "Analyse all my lead forms and tell me the best and worst performers.",
-        "Which Google Ads campaigns are wasting spend?",
-        "Find my worst-performing Google Ads keywords - candidates for negative keywords.",
+        "Audit my homepage and tell me what's hurting conversion.",
+        "Find my highest-bounce page, audit it, and tell me how to fix it.",
+        "Review my lead forms across the site - which need the most work?",
+        "How can I extract more leads from my top traffic pages?",
         "What's my Meta Ads ROAS by campaign?",
-        "Which Meta Ads creatives are working and which are fatigued?",
+        "Which Google Ads campaigns are wasting spend?",
         "Compare Google Ads vs Meta Ads - where should I shift budget?",
     ]
     for ex in examples:

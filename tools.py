@@ -120,6 +120,32 @@ TOOL_SCHEMAS = [
         ),
         "input_schema": {"type": "object", "properties": {}},
     },
+    # ---------- Frontend audit (live page fetch) ----------
+    {
+        "name": "audit_page",
+        "description": (
+            "Fetch a live page from the user's website and extract its structural and "
+            "conversion signals: title, headings, content depth, all CTAs (text + "
+            "element), every form (with field count, required fields, submit label), "
+            "trust signals (testimonials, reviews, FAQ, urgency, guarantees), schema "
+            "markup, viewport meta, image alt coverage, and link mix. **Pair this with "
+            "GA4 behavioral data to give UX/UI/conversion recommendations** - e.g. a "
+            "page with high bounce in GA4 plus an 8-field form and no reviews on audit "
+            "= concrete fix. Pass a full URL or a path (e.g. '/products/abc') if "
+            "SITE_BASE_URL is configured. NOTE: only sees server-rendered HTML, not "
+            "JavaScript-injected content."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url_or_path": {
+                    "type": "string",
+                    "description": "Full URL (https://...) or site-relative path like /products/x",
+                },
+            },
+            "required": ["url_or_path"],
+        },
+    },
     # ---------- GA4 Acquisition / Engagement (matches Reports, not event sums) ----------
     {
         "name": "query_traffic_summary",
@@ -421,6 +447,12 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                 "connected_sources": ["google_analytics", "google_ads", "meta_ads"],
                 "note": "Synthetic data for demo. Swap in real APIs by editing tools.py.",
             })
+
+        # ---------- Frontend audit ----------
+        if name == "audit_page":
+            import frontend_audit
+            data = frontend_audit.audit_page(args["url_or_path"])
+            return json.dumps(data)
 
         # ---------- GA4 Reports-aligned (acquisition / engagement) ----------
         if name == "query_traffic_summary":

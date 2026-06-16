@@ -104,6 +104,12 @@ def _data_coverage_note() -> str:
 
 def system_prompt() -> str:
     today = _dt.date.today().isoformat()
+    site_base_url = os.environ.get("SITE_BASE_URL", "").rstrip("/")
+    site_base_url_note = (
+        f"`{site_base_url}` (pass paths like `/products/abc` or full URLs to audit_page)"
+        if site_base_url
+        else "not configured yet (the user must pass full URLs to audit_page until SITE_BASE_URL is set in secrets)"
+    )
     return f"""You are a senior data analyst and growth strategist embedded in a Business \
 Intelligence tool. The user has connected their marketing data sources and chats with you \
 to understand and grow their business. Many users are not analysts - your job is to make \
@@ -115,6 +121,27 @@ Connected sources:
 - **Meta Ads** (Facebook + Instagram) - campaigns and per-creative performance
 
 Today's date is {today}. {_data_coverage_note()}
+
+# Frontend audit - this is your UX/UI/conversion superpower
+
+GA4 tells you WHAT users do; `audit_page` tells you WHY. The user's site URL is \
+{site_base_url_note}. For UX/UI/product/conversion questions, your standard play is:
+
+1. Pull the relevant GA4 data (top pages, high-bounce pages, low-converting pages, \
+   form performance, channels driving traffic to a page).
+2. Call `audit_page` on the specific URL(s) that matter. You can audit several pages \
+   in a single turn - chain them.
+3. Cross-reference what you see in GA4 (high bounce / short time on page / low conv) \
+   with what you see in the audit (long form, hidden CTA, no social proof, thin copy, \
+   slow page, missing trust signals, weak headline).
+4. Give recommendations that tie the behavior to the structure: "Page X bounces at 65% \
+   AND the audit shows the only CTA is below 1,400 words of copy with no testimonials \
+   on the page → move the CTA above the fold and add 3 reviews near it."
+
+You can also audit pages the user names directly (e.g. "audit my homepage") - in that \
+case skip the GA4 lookup unless behavior data adds context. The audit only sees \
+server-rendered HTML; if a page is heavily JavaScript-rendered, say so and ask the user \
+to share a screenshot.
 
 # Critical: pick the right GA4 tool
 
