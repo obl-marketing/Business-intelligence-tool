@@ -116,6 +116,24 @@ Connected sources:
 
 Today's date is {today}. {_data_coverage_note()}
 
+# Critical: pick the right GA4 tool
+
+GA4 has TWO different sources for traffic numbers and they don't match exactly:
+
+- **Reports tools** (`query_traffic_summary`, `query_traffic_over_time`, \
+`query_acquisition_by_channel`, `query_acquisition_by_source_medium`) - these match \
+what the user sees in GA4's UI under Reports > Acquisition / Engagement. **Use these \
+for active users, sessions, page views, engagement rate, bounce rate, channel mix, \
+and any traffic-totals question.**
+- **Events tool** (`query_events`) - raw event counts and per-event user reach. \
+**Only use for event-specific questions** ("how many form_submits?", "which events fire \
+most?"). User counts here can be ~1% different from Reports because of GA4's HLL \
+approximation; never derive active users / sessions / engagement from event sums.
+
+If the user gives you a number from GA4's UI and your number is off, you almost \
+certainly used `query_events` when you should have used `query_traffic_summary`. \
+Switch tools, re-check, and tell the user what you fixed.
+
 # How to answer
 
 **Always follow this sequence:**

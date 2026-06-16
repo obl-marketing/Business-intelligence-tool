@@ -258,3 +258,174 @@ def form_performance(start: str, end: str) -> list[dict]:
         })
     out.sort(key=lambda r: r["conversion_rate_pct"], reverse=True)
     return out
+
+
+# ---------------------------------------------------------------
+# Acquisition / Engagement (matches GA4 Reports, not event totals)
+# ---------------------------------------------------------------
+
+# These metrics align 1-to-1 with what the GA4 UI shows under
+# Reports > Acquisition > Overview and Reports > Engagement > Overview.
+# Source of truth for "active users", "sessions", "engagement rate" etc.
+
+def traffic_summary(start: str, end: str) -> dict:
+    """Account-level totals matching GA4 Reports > Acquisition Overview."""
+    rows = _run_report(
+        dimensions=[],
+        metrics=[
+            "activeUsers",
+            "newUsers",
+            "totalUsers",
+            "sessions",
+            "engagedSessions",
+            "screenPageViews",
+            "engagementRate",
+            "bounceRate",
+            "averageSessionDuration",
+            "sessionsPerUser",
+            "eventsPerSession",
+        ],
+        start_date=start,
+        end_date=end,
+    )
+    if not rows:
+        return {"note": "No traffic data for this range."}
+    r = rows[0]
+    return {
+        "date_range": {"start": start, "end": end},
+        "active_users": int(_num(r["activeUsers"])),
+        "new_users": int(_num(r["newUsers"])),
+        "total_users": int(_num(r["totalUsers"])),
+        "sessions": int(_num(r["sessions"])),
+        "engaged_sessions": int(_num(r["engagedSessions"])),
+        "page_views": int(_num(r["screenPageViews"])),
+        "engagement_rate_pct": round(_num(r["engagementRate"]) * 100, 2),
+        "bounce_rate_pct": round(_num(r["bounceRate"]) * 100, 2),
+        "avg_session_duration_seconds": round(_num(r["averageSessionDuration"]), 1),
+        "sessions_per_user": round(_num(r["sessionsPerUser"]), 2),
+        "events_per_session": round(_num(r["eventsPerSession"]), 2),
+        "source_metric_note": (
+            "Uses GA4 Data API metrics that match Reports > Acquisition Overview "
+            "(activeUsers, sessions, engagementRate). NOT derived from event sums."
+        ),
+    }
+
+
+def traffic_over_time(start: str, end: str) -> list[dict]:
+    """Daily time series matching GA4 Reports."""
+    rows = _run_report(
+        ["date"],
+        ["activeUsers", "newUsers", "sessions", "screenPageViews", "engagementRate"],
+        start,
+        end,
+    )
+    out = [
+        {
+            "date": _iso_date(r["date"]),
+            "active_users": int(_num(r["activeUsers"])),
+            "new_users": int(_num(r["newUsers"])),
+            "sessions": int(_num(r["sessions"])),
+            "page_views": int(_num(r["screenPageViews"])),
+            "engagement_rate_pct": round(_num(r["engagementRate"]) * 100, 2),
+        }
+        for r in rows
+    ]
+    out.sort(key=lambda r: r["date"])
+    return out
+
+
+def acquisition_by_channel(start: str, end: str) -> list[dict]:
+    """Per-channel breakdown matching GA4 Reports > Acquisition > Traffic Acquisition.
+
+    Uses sessionDefaultChannelGroup (the same dimension the GA4 UI uses there).
+    """
+    rows = _run_report(
+        ["sessionDefaultChannelGroup"],
+        [
+            "sessions",
+            "activeUsers",
+            "engagedSessions",
+            "engagementRate",
+            "bounceRate",
+            "averageSessionDuration",
+            "screenPageViews",
+        ],
+        start,
+        end,
+        limit=50,
+    )
+    total_sessions = sum(int(_num(r["sessions"])) for r in rows) or 1
+    out = []
+    for r in rows:
+        sessions = int(_num(r["sessions"]))
+        out.append({
+            "channel": r["sessionDefaultChannelGroup"] or "(unassigned)",
+            "sessions": sessions,
+            "share_pct": round(sessions / total_sessions * 100, 1),
+            "active_users": int(_num(r["activeUsers"])),
+            "engaged_sessions": int(_num(r["engagedSessions"])),
+            "engagement_rate_pct": round(_num(r["engagementRate"]) * 100, 2),
+            "bounce_rate_pct": round(_num(r["bounceRate"]) * 100, 2),
+            "avg_session_duration_seconds": round(_num(r["averageSessionDuration"]), 1),
+            "page_views": int(_num(r["screenPageViews"])),
+        })
+    out.sort(key=lambda r: r["sessions"], reverse=True)
+    return out
+
+
+def acquisition_by_source_medium(start: str, end: str, limit: int = 25) -> list[dict]:
+    """Per source / medium breakdown for deeper acquisition analysis."""
+    rows = _run_report(
+        ["sessionSourceMedium"],
+        ["sessions", "activeUsers", "engagementRate", "bounceRate", "averageSessionDuration"],
+        start,
+        end,
+        limit=limit,
+    )
+    out = []
+    for r in rows:
+        out.append({
+            "source_medium": r["sessionSourceMedium"],
+            "sessions": int(_num(r["sessions"])),
+            "active_users": int(_num(r["activeUsers"])),
+            "engagement_rate_pct": round(_num(r["engagementRate"]) * 100, 2),
+            "bounce_rate_pct": round(_num(r["bounceRate"]) * 100, 2),
+            "avg_session_duration_seconds": round(_num(r["averageSessionDuration"]), 1),
+        })
+    out.sort(key=lambda r: r["sessions"], reverse=True)
+    return out
+
+
+def engagement_summary(start: str, end: str) -> dict:
+    """Account-level engagement metrics matching GA4 Reports > Engagement."""
+    rows = _run_report(
+        dimensions=[],
+        metrics=[
+            "engagedSessions",
+            "engagementRate",
+            "userEngagementDuration",
+            "averageSessionDuration",
+            "eventsPerSession",
+            "screenPageViewsPerSession",
+            "sessionsPerUser",
+            "screenPageViews",
+            "eventCount",
+        ],
+        start_date=start,
+        end_date=end,
+    )
+    if not rows:
+        return {"note": "No engagement data for this range."}
+    r = rows[0]
+    return {
+        "date_range": {"start": start, "end": end},
+        "engaged_sessions": int(_num(r["engagedSessions"])),
+        "engagement_rate_pct": round(_num(r["engagementRate"]) * 100, 2),
+        "user_engagement_duration_seconds": round(_num(r["userEngagementDuration"]), 1),
+        "avg_session_duration_seconds": round(_num(r["averageSessionDuration"]), 1),
+        "events_per_session": round(_num(r["eventsPerSession"]), 2),
+        "page_views_per_session": round(_num(r["screenPageViewsPerSession"]), 2),
+        "sessions_per_user": round(_num(r["sessionsPerUser"]), 2),
+        "page_views": int(_num(r["screenPageViews"])),
+        "event_count": int(_num(r["eventCount"])),
+    }

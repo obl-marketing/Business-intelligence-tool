@@ -42,9 +42,12 @@ TOOL_SCHEMAS = [
     {
         "name": "query_events",
         "description": (
-            "Query GA4 events with counts and unique users. Use this to understand user behavior "
-            "(clicks, scrolls, video starts, form_submit, purchase, view_item, etc.). Omit "
-            "event_name to get all events ranked by count."
+            "Query raw GA4 events with counts and per-event user reach. Use ONLY for "
+            "questions about specific event behavior (which events fired most, how many "
+            "form_submits, etc.). DO NOT use this for active users, sessions, traffic "
+            "totals, engagement, or bounce rate - those metrics live in the dedicated "
+            "traffic/acquisition/engagement tools and will not match GA4 Reports if "
+            "derived from event sums. Omit event_name to get all events ranked by count."
         ),
         "input_schema": {
             "type": "object",
@@ -116,6 +119,79 @@ TOOL_SCHEMAS = [
             "the user asks about a period and you're unsure whether data exists for it."
         ),
         "input_schema": {"type": "object", "properties": {}},
+    },
+    # ---------- GA4 Acquisition / Engagement (matches Reports, not event sums) ----------
+    {
+        "name": "query_traffic_summary",
+        "description": (
+            "**Source of truth for active users, sessions, page views, engagement rate, "
+            "bounce rate, and average session duration.** Returns account-level totals "
+            "that exactly match GA4 Reports > Acquisition Overview and Engagement Overview. "
+            "Use this for ANY question about 'how is my traffic doing', 'how many active "
+            "users', 'sessions in May', 'engagement rate', 'bounce rate'. Do NOT derive "
+            "these numbers from query_events - they will be ~1% off because of GA4's "
+            "HyperLogLog approximation in event-level user counts."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
+        "name": "query_traffic_over_time",
+        "description": (
+            "Daily time series of active users, new users, sessions, page views, and "
+            "engagement rate - matches what GA4 Reports show on the Acquisition trend "
+            "chart. Use for trend questions ('week-over-week traffic', 'is traffic "
+            "growing', 'when did the dip happen')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
+        "name": "query_acquisition_by_channel",
+        "description": (
+            "Per-channel session and user breakdown (Organic Search, Direct, Paid Search, "
+            "Organic Social, Referral, etc.) - matches GA4 Reports > Acquisition > Traffic "
+            "Acquisition. Includes sessions, share, active users, engagement rate, bounce "
+            "rate, avg session duration. Use for channel mix questions or 'which channel "
+            "is performing best/worst'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
+        "name": "query_acquisition_by_source_medium",
+        "description": (
+            "Per source/medium breakdown for deeper traffic-source analysis (e.g. "
+            "'google / organic', 'facebook.com / referral', 'newsletter / email'). "
+            "Use when channel-level data isn't granular enough or to find specific "
+            "high/low-performing sources."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+            },
+            "required": ["start_date", "end_date"],
+        },
     },
     # ---------- Google Ads ----------
     {
@@ -345,6 +421,37 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                 "connected_sources": ["google_analytics", "google_ads", "meta_ads"],
                 "note": "Synthetic data for demo. Swap in real APIs by editing tools.py.",
             })
+
+        # ---------- GA4 Reports-aligned (acquisition / engagement) ----------
+        if name == "query_traffic_summary":
+            if not _ga4_live():
+                return json.dumps({
+                    "note": "Traffic summary needs the live GA4 connection. "
+                            "In demo mode, use query_pageviews instead."
+                })
+            return json.dumps(ga4_client.traffic_summary(args["start_date"], args["end_date"]))
+
+        if name == "query_traffic_over_time":
+            if not _ga4_live():
+                return json.dumps({
+                    "note": "Traffic-over-time needs the live GA4 connection. "
+                            "In demo mode, use query_pageviews with group_by=date."
+                })
+            data = ga4_client.traffic_over_time(args["start_date"], args["end_date"])
+            return json.dumps({"rows": data, "days": len(data), "source": "ga4_live"})
+
+        if name == "query_acquisition_by_channel":
+            if not _ga4_live():
+                return json.dumps({"note": "Acquisition-by-channel needs the live GA4 connection."})
+            data = ga4_client.acquisition_by_channel(args["start_date"], args["end_date"])
+            return json.dumps({"rows": data, "channels": len(data), "source": "ga4_live"})
+
+        if name == "query_acquisition_by_source_medium":
+            if not _ga4_live():
+                return json.dumps({"note": "Acquisition-by-source needs the live GA4 connection."})
+            limit = int(args.get("limit", 25))
+            data = ga4_client.acquisition_by_source_medium(args["start_date"], args["end_date"], limit=limit)
+            return json.dumps({"rows": data, "sources": len(data), "source": "ga4_live"})
 
         # ---------- Google Ads ----------
         if name == "query_google_ads_summary":
