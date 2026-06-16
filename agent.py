@@ -18,6 +18,7 @@ from typing import Iterator
 
 from tools import TOOL_SCHEMAS, run_tool
 import mock_data
+import knowledge_base
 
 
 # ---------------------------------------------------------------
@@ -206,7 +207,7 @@ closest available range instead.
 source would need to be connected.
 
 You are not a query tool - you are the user's analyst. Find loopholes, spot \
-opportunities, quantify problems, and back every strategy with evidence."""
+opportunities, quantify problems, and back every strategy with evidence.""" + knowledge_base.knowledge_prompt()
 
 
 def chat(
@@ -230,10 +231,29 @@ def chat(
 def _chat_anthropic(messages, model, api_key) -> Iterator[dict]:
     import anthropic
 
+    import base64
+
     client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
     model = model or os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
 
     working_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
+
+    # Attach knowledge-base screenshots to the first user turn as reference images
+    kb_images = knowledge_base.images_for_context()
+    if kb_images and working_messages and working_messages[0]["role"] == "user":
+        blocks = []
+        for img in kb_images:
+            blocks.append({"type": "text", "text": f"[Reference: {img['category']} - {img['title']}]"})
+            blocks.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": img["mime"],
+                    "data": base64.b64encode(img["bytes"]).decode(),
+                },
+            })
+        blocks.append({"type": "text", "text": working_messages[0]["content"]})
+        working_messages[0] = {"role": "user", "content": blocks}
 
     for _ in range(12):
         response = client.messages.create(
@@ -314,6 +334,15 @@ def _chat_gemini(messages, model, api_key) -> Iterator[dict]:
     for m in messages:
         role = "user" if m["role"] == "user" else "model"
         contents.append({"role": role, "parts": [{"text": m["content"]}]})
+
+    # Attach knowledge-base screenshots to the first user turn as reference images
+    kb_images = knowledge_base.images_for_context()
+    if kb_images and contents and contents[0]["role"] == "user":
+        ref_parts = []
+        for img in kb_images:
+            ref_parts.append({"text": f"[Reference image: {img['category']} - {img['title']}]"})
+            ref_parts.append(gt.Part.from_bytes(data=img["bytes"], mime_type=img["mime"]))
+        contents[0]["parts"] = ref_parts + contents[0]["parts"]
 
     config = gt.GenerateContentConfig(
         system_instruction=system_prompt(),

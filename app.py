@@ -8,6 +8,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from agent import chat
+import knowledge_base
 
 load_dotenv()
 
@@ -71,6 +72,15 @@ st.set_page_config(page_title="AI Data Scientist", page_icon="[chart]", layout="
 with st.sidebar:
     st.title("AI Data Scientist")
     st.caption("Chat-based BI over your marketing data.")
+
+    _kb_n = knowledge_base.count()
+    page = st.radio(
+        "Mode",
+        options=["Chat", f"Training ({_kb_n})"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    page = "Training" if page.startswith("Training") else "Chat"
 
     # Provider selection
     secret_provider = _get_secret("LLM_PROVIDER", "anthropic").lower()
@@ -217,6 +227,113 @@ with st.sidebar:
         st.rerun()
 
 
+# ================= TRAINING PAGE =================
+if page == "Training":
+    st.title("Training — teach the AI your business")
+    st.caption(
+        "Everything you add here is treated as **ground truth**. The AI uses it on "
+        "every question - your form definitions, page behaviors, chatbot flows, event "
+        "meanings, and learnings. Add screenshots and the AI can see them too."
+    )
+
+    st.info(
+        "Streamlit Cloud's disk resets when the app reboots. Use **Export** below to "
+        "back up your knowledge base, or commit `knowledge/entries.json` to your repo "
+        "to make it permanent.",
+        icon="💾",
+    )
+
+    # --- Add new entry ---
+    with st.form("add_knowledge", clear_on_submit=True):
+        st.subheader("Add knowledge")
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            category = st.selectbox("Category", knowledge_base.CATEGORIES)
+        with col2:
+            title = st.text_input(
+                "Title / name",
+                placeholder="e.g. Wholesale Inquiry Form, Tiles PLP, Support Chatbot",
+            )
+        description = st.text_area(
+            "Definition / how it works / what to know",
+            height=140,
+            placeholder=(
+                "Describe it in plain language. Examples:\n"
+                "- This form triggers as a popup after 30s on any /products/ page.\n"
+                "- Our PLP shows 24 products per page with infinite scroll; 'add_to_cart' "
+                "fires from the quick-view modal, not the card.\n"
+                "- The chatbot 'lead_captured' event fires only after the user shares a "
+                "phone number, not on chat open.\n"
+                "- LEARNING: Treat 'generate_lead' as our true lead metric, not form_submit."
+            ),
+        )
+        screenshot = st.file_uploader(
+            "Screenshot (optional)", type=["png", "jpg", "jpeg", "webp", "gif"]
+        )
+        submitted = st.form_submit_button("Add to knowledge base", type="primary")
+        if submitted:
+            if not title.strip() or not description.strip():
+                st.error("Title and description are required.")
+            else:
+                img_bytes = screenshot.read() if screenshot else None
+                img_mime = screenshot.type if screenshot else None
+                knowledge_base.add_entry(category, title, description, img_bytes, img_mime)
+                st.success(f"Added '{title}' to {category}.")
+                st.rerun()
+
+    st.divider()
+
+    # --- Existing entries ---
+    entries = knowledge_base.load_entries()
+    st.subheader(f"Knowledge base ({len(entries)} entries)")
+
+    if not entries:
+        st.caption("Nothing yet. Add your first definition above.")
+    else:
+        # group by category
+        for cat in knowledge_base.CATEGORIES:
+            cat_items = [e for e in entries if e["category"] == cat]
+            if not cat_items:
+                continue
+            st.markdown(f"#### {cat}  ·  {len(cat_items)}")
+            for e in cat_items:
+                with st.expander(f"{e['title']}", expanded=False):
+                    st.markdown(e["description"])
+                    if e.get("image_b64"):
+                        import base64 as _b64
+                        st.image(_b64.b64decode(e["image_b64"]), use_container_width=True)
+                    st.caption(f"Added {e.get('created_at', '')}  ·  id `{e['id']}`")
+                    if st.button("Delete", key=f"del_{e['id']}"):
+                        knowledge_base.delete_entry(e["id"])
+                        st.rerun()
+
+    st.divider()
+
+    # --- Import / Export ---
+    st.subheader("Backup & restore")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button(
+            "Export knowledge base (JSON)",
+            data=knowledge_base.export_json(),
+            file_name="knowledge_base.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+    with c2:
+        uploaded_kb = st.file_uploader("Import a knowledge base JSON", type=["json"], key="kb_import")
+        if uploaded_kb is not None:
+            try:
+                n = knowledge_base.import_json(uploaded_kb.read().decode(), merge=True)
+                st.success(f"Imported {n} new entries.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Import failed: {e}")
+
+    st.stop()  # don't render the chat page below
+
+
+# ================= CHAT PAGE =================
 # ---------- State ----------
 # Each entry: {"role": "user"|"assistant", "content": "text", "display_blocks": [...]}
 # `content` is text-only and is what the next API call sees. `display_blocks` is
