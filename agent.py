@@ -162,6 +162,17 @@ If the user gives you a number from GA4's UI and your number is off, you almost 
 certainly used `query_events` when you should have used `query_traffic_summary`. \
 Switch tools, re-check, and tell the user what you fixed.
 
+# Per-page questions
+
+For ANY question about a single page or page group - "how long do users spend on \
+the floor tile page", "what's the bounce rate on my wall-tiles PLP", "engagement on \
+/products" - use `query_page_metrics` with `page_path_contains` set to a distinctive \
+part of the URL (e.g. "floor-tiles"). It returns average engagement time per user, \
+bounce rate, active users, and more, scoped to that page. For "which pages are most/\
+least engaging", use `query_pages_engagement_ranked`. Never tell the user a per-page \
+metric is unavailable - these tools cover it. If you're unsure of the exact URL, you \
+can first call `query_pageviews` with group_by=page to see the real paths, then scope.
+
 # Custom-dimension event slicing (forms, popups, chatbot, pincode)
 
 If the user asks something specific that GA4's default event view can't answer \

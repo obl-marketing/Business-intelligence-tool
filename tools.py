@@ -221,6 +221,50 @@ TOOL_SCHEMAS = [
     },
     # ---------- GA4 custom-dimension slicing ----------
     {
+        "name": "query_page_metrics",
+        "description": (
+            "Engagement and traffic metrics for ONE page or page group, matching GA4 "
+            "Reports > Engagement > Pages. Returns active users, page views, sessions, "
+            "**average engagement time per active user** (the GA4 'avg engagement time "
+            "per user' metric = userEngagementDuration / activeUsers), engagement rate, "
+            "bounce rate, and avg session duration - all scoped to the page. Use this "
+            "for ANY question about how long users spend on a specific page, or that "
+            "page's engagement/bounce. `page_path_contains` matches the URL path by "
+            "substring (e.g. 'floor-tiles', '/wall-tiles/', '/products/')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "page_path_contains": {
+                    "type": "string",
+                    "description": "Substring of the page URL path to scope to, e.g. 'floor-tiles'",
+                },
+            },
+            "required": ["start_date", "end_date", "page_path_contains"],
+        },
+    },
+    {
+        "name": "query_pages_engagement_ranked",
+        "description": (
+            "Leaderboard of pages by engagement: per-page active users, page views, "
+            "average engagement time per user, engagement rate, and bounce rate - "
+            "matches GA4 Reports > Engagement > Pages and screens. Use for 'which pages "
+            "do users spend most/least time on', 'most engaging pages', or to find "
+            "high-traffic low-engagement pages worth fixing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "limit": {"type": "integer", "description": "Max pages (default 25)"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
         "name": "query_events_breakdown",
         "description": (
             "Slice GA4 events by any combination of dimensions (including custom "
@@ -543,6 +587,22 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
             limit = int(args.get("limit", 25))
             data = ga4_client.acquisition_by_source_medium(args["start_date"], args["end_date"], limit=limit)
             return json.dumps({"rows": data, "sources": len(data), "source": "ga4_live"})
+
+        # ---------- GA4 per-page metrics ----------
+        if name == "query_page_metrics":
+            if not _ga4_live():
+                return json.dumps({"note": "Per-page metrics need the live GA4 connection."})
+            return json.dumps(ga4_client.page_metrics(
+                args["start_date"], args["end_date"], args["page_path_contains"]
+            ))
+
+        if name == "query_pages_engagement_ranked":
+            if not _ga4_live():
+                return json.dumps({"note": "Page engagement leaderboard needs the live GA4 connection."})
+            data = ga4_client.pages_engagement_ranked(
+                args["start_date"], args["end_date"], limit=int(args.get("limit", 25))
+            )
+            return json.dumps({"rows": data, "count": len(data), "source": "ga4_live"})
 
         # ---------- GA4 custom-dimension slicing ----------
         if name == "query_events_breakdown":

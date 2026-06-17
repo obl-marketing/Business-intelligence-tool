@@ -560,3 +560,136 @@ def form_breakdown(
             "form_submit events with a form_id parameter."
         ) if all(r["form_id"] == "(unknown)" for r in out) else None,
     }
+
+
+# ---------------------------------------------------------------
+# Per-page metrics (engagement time, bounce, etc. for ONE page)
+# ---------------------------------------------------------------
+
+def page_metrics(start: str, end: str, page_path_contains: str) -> dict:
+    """Engagement + traffic metrics for a specific page (or page group).
+
+    Matches the per-page numbers GA4 shows under Reports > Engagement > Pages.
+    `page_path_contains` filters pagePath by substring (e.g. '/floor-tiles').
+
+    Computes 'average engagement time per active user' the same way the GA4 UI
+    does: userEngagementDuration / activeUsers.
+    """
+    from google.analytics.data_v1beta.types import (
+        RunReportRequest, DateRange, Dimension, Metric, FilterExpression, Filter,
+    )
+
+    metrics = [
+        "activeUsers",
+        "screenPageViews",
+        "userEngagementDuration",   # total engaged seconds
+        "engagementRate",
+        "bounceRate",
+        "averageSessionDuration",
+        "eventCount",
+        "sessions",
+    ]
+    request = RunReportRequest(
+        property=_property(),
+        date_ranges=[DateRange(start_date=start, end_date=end)],
+        dimensions=[Dimension(name="pagePath")],
+        metrics=[Metric(name=m) for m in metrics],
+        dimension_filter=FilterExpression(
+            filter=Filter(
+                field_name="pagePath",
+                string_filter=Filter.StringFilter(
+                    match_type=Filter.StringFilter.MatchType.CONTAINS,
+                    value=page_path_contains,
+                ),
+            )
+        ),
+        limit=1000,
+    )
+    response = _client().run_report(request)
+
+    # Aggregate across all matching page paths (a category page can have variants)
+    agg = {m: 0.0 for m in metrics}
+    matched_paths = []
+    for r in response.rows:
+        matched_paths.append(r.dimension_values[0].value)
+        for m, mv in zip(metrics, r.metric_values):
+            agg[m] += _num(mv.value)
+
+    active_users = agg["activeUsers"]
+    total_engagement_seconds = agg["userEngagementDuration"]
+    avg_engagement_per_user = (
+        round(total_engagement_seconds / active_users, 1) if active_users else 0.0
+    )
+
+    if not matched_paths:
+        return {
+            "page_filter": page_path_contains,
+            "note": f"No pages matched '{page_path_contains}' in this date range.",
+        }
+
+    return {
+        "page_filter": page_path_contains,
+        "matched_pages": matched_paths[:25],
+        "matched_page_count": len(matched_paths),
+        "date_range": {"start": start, "end": end},
+        "active_users": int(active_users),
+        "page_views": int(agg["screenPageViews"]),
+        "sessions": int(agg["sessions"]),
+        "avg_engagement_time_per_user_seconds": avg_engagement_per_user,
+        "avg_engagement_time_per_user_readable": _fmt_seconds(avg_engagement_per_user),
+        "total_engagement_time_seconds": int(total_engagement_seconds),
+        "engagement_rate_pct": round(
+            (agg["engagementRate"] / len(matched_paths)) * 100, 2
+        ) if matched_paths else 0.0,
+        "avg_session_duration_seconds": round(
+            agg["averageSessionDuration"] / len(matched_paths), 1
+        ) if matched_paths else 0.0,
+        "events": int(agg["eventCount"]),
+        "metric_note": (
+            "avg_engagement_time_per_user = userEngagementDuration / activeUsers, "
+            "the same calculation GA4's UI uses for 'Average engagement time per "
+            "active user'. Aggregated across all page paths matching the filter."
+        ),
+    }
+
+
+def _fmt_seconds(s: float) -> str:
+    s = int(round(s))
+    if s < 60:
+        return f"{s}s"
+    m, sec = divmod(s, 60)
+    if m < 60:
+        return f"{m}m {sec}s"
+    h, m = divmod(m, 60)
+    return f"{h}h {m}m {sec}s"
+
+
+def pages_engagement_ranked(start: str, end: str, limit: int = 25) -> list[dict]:
+    """Per-page engagement-time leaderboard - find pages users spend most/least
+    time on. Matches GA4 Reports > Engagement > Pages and screens."""
+    rows = _run_report(
+        ["pagePath", "pageTitle"],
+        ["activeUsers", "screenPageViews", "userEngagementDuration",
+         "engagementRate", "bounceRate"],
+        start,
+        end,
+        limit=max(limit * 4, 100),
+    )
+    out = []
+    for r in rows:
+        au = _num(r["activeUsers"])
+        eng = _num(r["userEngagementDuration"])
+        out.append({
+            "page_path": r["pagePath"],
+            "page_title": r["pageTitle"],
+            "active_users": int(au),
+            "page_views": int(_num(r["screenPageViews"])),
+            "avg_engagement_time_per_user_seconds": round(eng / au, 1) if au else 0.0,
+            "avg_engagement_time_per_user_readable": _fmt_seconds(eng / au if au else 0),
+            "engagement_rate_pct": round(_num(r["engagementRate"]) * 100, 2),
+            "bounce_rate_pct": round(_num(r["bounceRate"]) * 100, 2),
+        })
+    # rank by views so the leaderboard is meaningful, drop tiny-traffic noise
+    out = [r for r in out if r["active_users"] >= 1]
+    out.sort(key=lambda r: r["page_views"], reverse=True)
+    return out[:limit]
