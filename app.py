@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from agent import chat
 import knowledge_base
+import chat_store
 
 load_dotenv()
 
@@ -203,6 +204,38 @@ with st.sidebar:
         )
 
     st.divider()
+    st.subheader("Conversations")
+    if st.button("+ New chat", use_container_width=True, type="primary"):
+        st.session_state["active_chat_id"] = chat_store.new_chat()
+        st.session_state["messages"] = []
+        st.rerun()
+
+    _saved_chats = chat_store.list_chats()
+    _active = st.session_state.get("active_chat_id")
+    if _saved_chats:
+        for c in _saved_chats[:25]:
+            is_active = c["id"] == _active
+            col_a, col_b = st.columns([5, 1])
+            with col_a:
+                label = ("👉 " if is_active else "💬 ") + c["title"]
+                if st.button(label, key=f"chat_{c['id']}", use_container_width=True,
+                             help=f"{c['message_count']} messages · {c['updated_at']}"):
+                    if c["id"] != _active:
+                        loaded = chat_store.load_chat(c["id"])
+                        st.session_state["active_chat_id"] = c["id"]
+                        st.session_state["messages"] = loaded["messages"] if loaded else []
+                        st.rerun()
+            with col_b:
+                if st.button("✕", key=f"del_chat_{c['id']}", help="Delete this chat"):
+                    chat_store.delete_chat(c["id"])
+                    if c["id"] == _active:
+                        st.session_state["active_chat_id"] = None
+                        st.session_state["messages"] = []
+                    st.rerun()
+    else:
+        st.caption("No saved chats yet. Ask a question to start one.")
+
+    st.divider()
     st.subheader("Try asking")
     examples = [
         "How is my website traffic doing in the last 30 days?",
@@ -222,7 +255,7 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    if st.button("Clear conversation", use_container_width=True):
+    if st.button("Clear current chat (don't save)", use_container_width=True):
         st.session_state["messages"] = []
         st.rerun()
 
@@ -340,6 +373,8 @@ if page == "Training":
 # kept separately for re-rendering rich tool-call expanders on the screen.
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
+if "active_chat_id" not in st.session_state:
+    st.session_state["active_chat_id"] = None
 
 
 # ---------- Render history ----------
@@ -448,3 +483,9 @@ if prompt:
         "content": assistant_text,
         "display_blocks": display_blocks,
     })
+
+    # --- Auto-save this conversation ---
+    if not st.session_state.get("active_chat_id"):
+        st.session_state["active_chat_id"] = chat_store.new_chat()
+    chat_store.save_chat(st.session_state["active_chat_id"], st.session_state["messages"])
+    st.rerun()  # refresh sidebar list to reflect new title/timestamp
