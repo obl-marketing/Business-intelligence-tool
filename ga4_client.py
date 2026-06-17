@@ -429,3 +429,134 @@ def engagement_summary(start: str, end: str) -> dict:
         "page_views": int(_num(r["screenPageViews"])),
         "event_count": int(_num(r["eventCount"])),
     }
+
+
+# ---------------------------------------------------------------
+# Flexible event slicing (custom dimensions)
+# ---------------------------------------------------------------
+
+# When you query a custom dimension via the Data API, the dimension
+# name is "customEvent:<param_name>" (e.g. "customEvent:form_id").
+# This wrapper lets the agent ask for arbitrary breakdowns once you
+# register custom dimensions in GA4.
+
+def events_breakdown(
+    start: str,
+    end: str,
+    event_names: list[str] | None = None,
+    dimensions: list[str] | None = None,
+    page_path_contains: str | None = None,
+    limit: int = 200,
+) -> list[dict]:
+    """Slice events by any combination of dimensions, with optional filters.
+
+    `dimensions` accepts standard GA4 dimensions (pagePath, eventName,
+    sessionDefaultChannelGroup, deviceCategory, country, ...) AND custom
+    dimensions registered in GA4, addressed as "customEvent:<param_name>"
+    (e.g. "customEvent:form_id", "customEvent:form_trigger").
+
+    Returns rows with eventCount + totalUsers per dimension combination.
+    """
+    from google.analytics.data_v1beta.types import (
+        RunReportRequest, DateRange, Dimension, Metric,
+        FilterExpression, FilterExpressionList, Filter,
+    )
+
+    dims = dimensions or ["eventName"]
+    request = RunReportRequest(
+        property=_property(),
+        date_ranges=[DateRange(start_date=start, end_date=end)],
+        dimensions=[Dimension(name=d) for d in dims],
+        metrics=[Metric(name="eventCount"), Metric(name="totalUsers")],
+        limit=limit,
+    )
+
+    filters: list[FilterExpression] = []
+    if event_names:
+        filters.append(FilterExpression(
+            filter=Filter(field_name="eventName",
+                          in_list_filter=Filter.InListFilter(values=event_names))
+        ))
+    if page_path_contains:
+        filters.append(FilterExpression(
+            filter=Filter(field_name="pagePath",
+                          string_filter=Filter.StringFilter(
+                              match_type=Filter.StringFilter.MatchType.CONTAINS,
+                              value=page_path_contains,
+                          ))
+        ))
+    if len(filters) == 1:
+        request.dimension_filter = filters[0]
+    elif len(filters) > 1:
+        request.dimension_filter = FilterExpression(
+            and_group=FilterExpressionList(expressions=filters)
+        )
+
+    response = _client().run_report(request)
+    out = []
+    for r in response.rows:
+        row = {}
+        for d, dv in zip(dims, r.dimension_values):
+            # strip the "customEvent:" prefix in keys for cleaner JSON
+            key = d.replace("customEvent:", "")
+            row[key] = dv.value or "(not set)"
+        row["event_count"] = int(_num(r.metric_values[0].value))
+        row["users"] = int(_num(r.metric_values[1].value))
+        out.append(row)
+    out.sort(key=lambda r: r["event_count"], reverse=True)
+    return out
+
+
+def form_breakdown(
+    start: str,
+    end: str,
+    form_id: str | None = None,
+    page_path_contains: str | None = None,
+) -> dict:
+    """High-level form analytics using the form_view / form_start / form_submit
+    triplet with a customEvent:form_id custom dimension if registered."""
+    dims = ["customEvent:form_id", "pagePath", "eventName"]
+    rows = events_breakdown(
+        start, end,
+        event_names=["form_view", "form_start", "form_submit", "generate_lead"],
+        dimensions=dims,
+        page_path_contains=page_path_contains,
+    )
+
+    bucket: dict[tuple[str, str], dict] = {}
+    for r in rows:
+        fid = r.get("form_id", "(unknown)") or "(unknown)"
+        if form_id and fid != form_id:
+            continue
+        page = r.get("pagePath", "(unknown)")
+        key = (fid, page)
+        slot = bucket.setdefault(key, {
+            "form_id": fid,
+            "page_path": page,
+            "views": 0, "starts": 0, "submits": 0, "unique_users": 0,
+        })
+        ev = r.get("eventName", "")
+        if ev == "form_view":
+            slot["views"] = r["event_count"]
+            slot["unique_users"] = max(slot["unique_users"], r["users"])
+        elif ev == "form_start":
+            slot["starts"] = r["event_count"]
+        elif ev in ("form_submit", "generate_lead"):
+            slot["submits"] += r["event_count"]
+
+    out = []
+    for slot in bucket.values():
+        v = slot["views"]
+        s = slot["submits"]
+        slot["submit_rate_pct"] = round(s / v * 100, 2) if v else 0.0
+        out.append(slot)
+    out.sort(key=lambda r: r["views"], reverse=True)
+    return {
+        "rows": out,
+        "note": (
+            "If form_id is empty everywhere, the customEvent:form_id custom "
+            "dimension is not registered in GA4 yet. Register it under "
+            "Admin > Custom definitions and have the site fire form_view / "
+            "form_submit events with a form_id parameter."
+        ) if all(r["form_id"] == "(unknown)" for r in out) else None,
+    }

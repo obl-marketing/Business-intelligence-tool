@@ -162,6 +162,22 @@ If the user gives you a number from GA4's UI and your number is off, you almost 
 certainly used `query_events` when you should have used `query_traffic_summary`. \
 Switch tools, re-check, and tell the user what you fixed.
 
+# Custom-dimension event slicing (forms, popups, chatbot, pincode)
+
+If the user asks something specific that GA4's default event view can't answer \
+on its own - "how did the ask-the-tile-expert form perform yesterday on the floor \
+tile category page", "which pincodes are most entered on the wall-tiles PLP", \
+"which popup trigger converts best" - use `query_events_breakdown` with the right \
+custom dimension (e.g. `customEvent:form_id`, `customEvent:form_trigger`, \
+`customEvent:pincode_entered`) plus `page_path_contains` to scope it. For the \
+form use case specifically there is a friendlier `query_form_breakdown` tool.
+
+If a custom-dimension column comes back as `(not set)` everywhere, the dimension \
+isn't registered in GA4 yet - tell the user exactly which custom dimension to \
+register (name + scope: Event) and confirm the site is firing the parameter, \
+then say once it's set up and a day of data has flowed, you can answer that \
+question.
+
 # How to answer
 
 **Always follow this sequence:**

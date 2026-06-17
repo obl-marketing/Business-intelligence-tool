@@ -219,6 +219,65 @@ TOOL_SCHEMAS = [
             "required": ["start_date", "end_date"],
         },
     },
+    # ---------- GA4 custom-dimension slicing ----------
+    {
+        "name": "query_events_breakdown",
+        "description": (
+            "Slice GA4 events by any combination of dimensions (including custom "
+            "dimensions registered in GA4). Use when the user wants per-form / per-"
+            "trigger / per-variant / per-pincode / per-anything breakdowns of events. "
+            "Custom dimensions must be addressed as 'customEvent:<param>' "
+            "(e.g. 'customEvent:form_id', 'customEvent:form_trigger', "
+            "'customEvent:pincode_entered'). Standard dimensions include 'pagePath', "
+            "'eventName', 'sessionDefaultChannelGroup', 'deviceCategory', 'country'. "
+            "Returns event_count + unique users per combination. If a custom-dimension "
+            "column comes back as '(not set)' for every row, that dimension isn't "
+            "registered in GA4 yet - tell the user how to register it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "event_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional: filter to these event names (e.g. ['form_view', 'form_submit'])",
+                },
+                "dimensions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Dimensions to break down by. Default ['eventName']. Use customEvent:<name> for custom dimensions.",
+                },
+                "page_path_contains": {
+                    "type": "string",
+                    "description": "Optional: only include events where pagePath contains this substring (e.g. '/floor-tiles')",
+                },
+                "limit": {"type": "integer", "description": "Max rows (default 200)"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
+        "name": "query_form_breakdown",
+        "description": (
+            "Targeted form analytics: views, starts, submits, submit-rate per (form_id, "
+            "page_path) combination. Uses the form_view / form_start / form_submit events "
+            "with the customEvent:form_id custom dimension. Use this for questions like "
+            "'how is the ask-the-tile-expert form performing on the floor tile category "
+            "page'. Supports filtering to a specific form_id or page substring."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "form_id": {"type": "string", "description": "Optional: filter to one form_id"},
+                "page_path_contains": {"type": "string", "description": "Optional: filter to pages containing this substring"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
     # ---------- Google Ads ----------
     {
         "name": "query_google_ads_summary",
@@ -484,6 +543,30 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
             limit = int(args.get("limit", 25))
             data = ga4_client.acquisition_by_source_medium(args["start_date"], args["end_date"], limit=limit)
             return json.dumps({"rows": data, "sources": len(data), "source": "ga4_live"})
+
+        # ---------- GA4 custom-dimension slicing ----------
+        if name == "query_events_breakdown":
+            if not _ga4_live():
+                return json.dumps({"note": "Custom-dimension event slicing needs the live GA4 connection."})
+            data = ga4_client.events_breakdown(
+                args["start_date"], args["end_date"],
+                event_names=args.get("event_names"),
+                dimensions=args.get("dimensions") or ["eventName"],
+                page_path_contains=args.get("page_path_contains"),
+                limit=int(args.get("limit", 200)),
+            )
+            return json.dumps({"rows": data, "count": len(data), "source": "ga4_live"})
+
+        if name == "query_form_breakdown":
+            if not _ga4_live():
+                return json.dumps({"note": "Form breakdown needs the live GA4 connection."})
+            data = ga4_client.form_breakdown(
+                args["start_date"], args["end_date"],
+                form_id=args.get("form_id"),
+                page_path_contains=args.get("page_path_contains"),
+            )
+            data["source"] = "ga4_live"
+            return json.dumps(data)
 
         # ---------- Google Ads ----------
         if name == "query_google_ads_summary":
