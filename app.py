@@ -46,10 +46,14 @@ def _get_secret(key: str, default: str = "") -> str:
 
 # Copy data-source secrets into env vars so the non-Streamlit layers
 # (tools.py / ga4_client.py) can read them.
-for _key in ("DATA_SOURCE", "GA4_PROPERTY_ID", "GA4_SERVICE_ACCOUNT_JSON", "SITE_BASE_URL"):
+for _key in ("DATA_SOURCE", "GA4_PROPERTY_ID", "GA4_SERVICE_ACCOUNT_JSON", "SITE_BASE_URL",
+             "GITHUB_TOKEN", "GITHUB_REPO", "GITHUB_BRANCH"):
     _val = _get_secret(_key)
     if _val:
         os.environ[_key] = _val
+
+import persistent_store
+_PERSISTENT = persistent_store.github_enabled()
 
 _GA4_LIVE = (
     os.environ.get("DATA_SOURCE", "mock").lower() == "ga4"
@@ -270,12 +274,19 @@ if page == "Training":
         "meanings, and learnings. Add screenshots and the AI can see them too."
     )
 
-    st.info(
-        "Streamlit Cloud's disk resets when the app reboots. Use **Export** below to "
-        "back up your knowledge base, or commit `knowledge/entries.json` to your repo "
-        "to make it permanent.",
-        icon="💾",
-    )
+    if _PERSISTENT:
+        st.success(
+            f"✅ Persistent storage active — {persistent_store.storage_label()}. "
+            "Entries survive reboots.",
+            icon="💾",
+        )
+    else:
+        st.warning(
+            "⚠️ Local-disk storage only — entries are wiped when the app reboots. "
+            "Add `GITHUB_TOKEN`, `GITHUB_REPO`, and `GITHUB_BRANCH` to your Streamlit "
+            "secrets to persist to GitHub. Until then, use **Export** below to back up.",
+            icon="💾",
+        )
 
     # --- Add new entry ---
     with st.form("add_knowledge", clear_on_submit=True):

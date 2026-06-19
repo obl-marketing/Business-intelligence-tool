@@ -18,6 +18,8 @@ import os
 import re
 import uuid
 
+import persistent_store
+
 CHATS_DIR = os.environ.get("CHATS_DIR", "chats")
 CHATS_FILE = os.path.join(CHATS_DIR, "conversations.json")
 
@@ -40,20 +42,14 @@ def _serialize_blocks(blocks: list[dict]) -> list[dict]:
 
 
 def load_all() -> list[dict]:
-    try:
-        with open(CHATS_FILE, "r") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                return data
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-    return []
+    data = persistent_store.read_json(CHATS_FILE, default=[])
+    return data if isinstance(data, list) else []
 
 
 def _save_all(chats: list[dict]) -> None:
     _ensure_dir()
-    with open(CHATS_FILE, "w") as f:
-        json.dump(chats, f, indent=2)
+    persistent_store.write_json(CHATS_FILE, chats,
+                                message=f"STARS: chats ({len(chats)} conversations)")
 
 
 def list_chats() -> list[dict]:

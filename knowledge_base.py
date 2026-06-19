@@ -18,6 +18,8 @@ import os
 import uuid
 from typing import Any
 
+import persistent_store
+
 KB_DIR = os.environ.get("KB_DIR", "knowledge")
 KB_FILE = os.path.join(KB_DIR, "entries.json")
 
@@ -39,17 +41,13 @@ def _ensure_dir() -> None:
 
 
 def load_entries() -> list[dict[str, Any]]:
-    try:
-        with open(KB_FILE, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+    return persistent_store.read_json(KB_FILE, default=[])
 
 
 def _save(entries: list[dict]) -> None:
     _ensure_dir()
-    with open(KB_FILE, "w") as f:
-        json.dump(entries, f, indent=2)
+    persistent_store.write_json(KB_FILE, entries,
+                                message=f"STARS: knowledge ({len(entries)} entries)")
 
 
 def add_entry(
