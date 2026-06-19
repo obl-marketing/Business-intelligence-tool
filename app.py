@@ -67,12 +67,13 @@ PROVIDER_DEFAULT_MODEL = {
     "gemini": "gemini-2.5-flash",
 }
 
-st.set_page_config(page_title="AI Data Scientist", page_icon="[chart]", layout="wide")
+st.set_page_config(page_title="STARS — Self-Trained Analyst for Reporting & Strategy",
+                   page_icon="⭐", layout="wide")
 
 # ---------- Sidebar ----------
 with st.sidebar:
-    st.title("AI Data Scientist")
-    st.caption("Chat-based BI over your marketing data.")
+    st.title("STARS ⭐")
+    st.caption("**S**elf-**T**rained **A**nalyst for **R**eporting & **S**trategy")
 
     _kb_n = knowledge_base.count()
     page = st.radio(
