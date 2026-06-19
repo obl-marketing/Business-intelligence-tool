@@ -303,6 +303,28 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "query_popup_breakdown",
+        "description": (
+            "Per-popup analytics: views, closes (rage-quits), submits, submit-rate "
+            "and close-rate per (popup_id, page_path). Uses popup_view / popup_close "
+            "/ popup_submit family of events with the customEvent:popup_id custom "
+            "dimension. Use this for ANY question about popups - which popup converts "
+            "best, which is being closed most, which page a popup performs best on, "
+            "etc. Supports filtering to one popup_id or page substring. If popup_id "
+            "is '(unknown)' for every row, surface the setup hint to the user."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "popup_id": {"type": "string", "description": "Optional: filter to one popup_id"},
+                "page_path_contains": {"type": "string", "description": "Optional: filter to pages containing this substring"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
         "name": "query_form_breakdown",
         "description": (
             "Targeted form analytics: views, starts, submits, submit-rate per (form_id, "
@@ -616,6 +638,17 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                 limit=int(args.get("limit", 200)),
             )
             return json.dumps({"rows": data, "count": len(data), "source": "ga4_live"})
+
+        if name == "query_popup_breakdown":
+            if not _ga4_live():
+                return json.dumps({"note": "Popup breakdown needs the live GA4 connection."})
+            data = ga4_client.popup_breakdown(
+                args["start_date"], args["end_date"],
+                popup_id=args.get("popup_id"),
+                page_path_contains=args.get("page_path_contains"),
+            )
+            data["source"] = "ga4_live"
+            return json.dumps(data)
 
         if name == "query_form_breakdown":
             if not _ga4_live():

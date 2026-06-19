@@ -180,8 +180,12 @@ on its own - "how did the ask-the-tile-expert form perform yesterday on the floo
 tile category page", "which pincodes are most entered on the wall-tiles PLP", \
 "which popup trigger converts best" - use `query_events_breakdown` with the right \
 custom dimension (e.g. `customEvent:form_id`, `customEvent:form_trigger`, \
-`customEvent:pincode_entered`) plus `page_path_contains` to scope it. For the \
-form use case specifically there is a friendlier `query_form_breakdown` tool.
+`customEvent:pincode_entered`) plus `page_path_contains` to scope it.
+
+For the common ones there are friendlier targeted tools - prefer them:
+- **Popups** (any question about a popup, by popup_id, close-rate, conversion \
+on a specific page) → `query_popup_breakdown`
+- **Forms** (any form by form_id) → `query_form_breakdown`
 
 If a custom-dimension column comes back as `(not set)` everywhere, the dimension \
 isn't registered in GA4 yet - tell the user exactly which custom dimension to \

@@ -693,3 +693,79 @@ def pages_engagement_ranked(start: str, end: str, limit: int = 25) -> list[dict]
     out = [r for r in out if r["active_users"] >= 1]
     out.sort(key=lambda r: r["page_views"], reverse=True)
     return out[:limit]
+
+
+# ---------------------------------------------------------------
+# Popup breakdown (popup_id custom dimension)
+# ---------------------------------------------------------------
+
+POPUP_VIEW_EVENTS = ["popup_view", "popup_shown", "popup_open", "popup_opened", "modal_open"]
+POPUP_CLOSE_EVENTS = ["popup_close", "popup_closed", "popup_dismiss", "popup_dismissed", "modal_close"]
+POPUP_SUBMIT_EVENTS = ["popup_submit", "popup_conversion", "popup_lead", "generate_lead"]
+
+
+def popup_breakdown(
+    start: str,
+    end: str,
+    popup_id: str | None = None,
+    page_path_contains: str | None = None,
+) -> dict:
+    """Per-popup analytics: views, closes (rage-quits), submits, submit rate,
+    aggregated per (popup_id, page_path). Uses the popup_view / popup_close /
+    popup_submit family of events with a customEvent:popup_id dimension.
+
+    Tries a broad set of common event names so it works regardless of
+    whether your site uses popup_view vs popup_shown vs popup_open etc.
+    """
+    all_events = POPUP_VIEW_EVENTS + POPUP_CLOSE_EVENTS + POPUP_SUBMIT_EVENTS
+    rows = events_breakdown(
+        start, end,
+        event_names=all_events,
+        dimensions=["customEvent:popup_id", "pagePath", "eventName"],
+        page_path_contains=page_path_contains,
+        limit=1000,
+    )
+
+    bucket: dict[tuple[str, str], dict] = {}
+    for r in rows:
+        pid = r.get("popup_id", "(unknown)") or "(unknown)"
+        if popup_id and pid != popup_id:
+            continue
+        page = r.get("pagePath", "(unknown)")
+        key = (pid, page)
+        slot = bucket.setdefault(key, {
+            "popup_id": pid,
+            "page_path": page,
+            "views": 0, "closes": 0, "submits": 0, "unique_users": 0,
+        })
+        ev = r.get("eventName", "")
+        if ev in POPUP_VIEW_EVENTS:
+            slot["views"] += r["event_count"]
+            slot["unique_users"] = max(slot["unique_users"], r["users"])
+        elif ev in POPUP_CLOSE_EVENTS:
+            slot["closes"] += r["event_count"]
+        elif ev in POPUP_SUBMIT_EVENTS:
+            slot["submits"] += r["event_count"]
+
+    out = []
+    for slot in bucket.values():
+        v = slot["views"]
+        slot["submit_rate_pct"] = round(slot["submits"] / v * 100, 2) if v else 0.0
+        slot["close_rate_pct"] = round(slot["closes"] / v * 100, 2) if v else 0.0
+        out.append(slot)
+    out.sort(key=lambda r: r["views"], reverse=True)
+
+    needs_setup = all(r["popup_id"] == "(unknown)" for r in out) and out
+    note = None
+    if not out:
+        note = ("No popup events found. Either no popups fired in this range, or "
+                "the site doesn't emit any of: " + ", ".join(all_events))
+    elif needs_setup:
+        note = ("popup_id is empty for every row. Two possible fixes: "
+                "(1) register 'popup_id' as a custom dimension in GA4 "
+                "(Admin > Custom definitions > Create custom dimension, "
+                "Event parameter = 'popup_id', Scope = Event), and "
+                "(2) ensure the site's dataLayer.push includes popup_id "
+                "on every popup_view / popup_close / popup_submit event.")
+
+    return {"rows": out, "note": note}
