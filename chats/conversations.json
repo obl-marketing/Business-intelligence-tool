@@ -1,9 +1,60 @@
 [
   {
     "id": "cb15ae2caa18",
-    "title": "New chat",
+    "title": "i have just uploaded training data, digest it",
     "created_at": "2026-06-30T12:59:53.301206Z",
-    "updated_at": "2026-06-30T12:59:53.301221Z",
-    "messages": []
+    "updated_at": "2026-06-30T13:00:20.851868Z",
+    "messages": [
+      {
+        "role": "user",
+        "content": "i have just uploaded training data, digest it ",
+        "display_blocks": [
+          {
+            "kind": "text",
+            "content": "i have just uploaded training data, digest it "
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Thank you for providing the training data! I've successfully digested the information regarding your forms and event definitions. This context will help me provide more accurate and relevant analysis for your business.\n\nWhat's the first question I can help you answer about your marketing performance or user behavior? For example, we could look at:\n\n*   Overall site traffic trends\n*   Performance of a specific marketing channel\n*   Engagement on a particular page\n*   Conversion rates for one of your forms\n*   Auditing a page for conversion opportunities",
+        "display_blocks": [
+          {
+            "kind": "text",
+            "content": "Thank you for providing the training data! I've successfully digested the information regarding your forms and event definitions. This context will help me provide more accurate and relevant analysis for your business.\n\nWhat's the first question I can help you answer about your marketing performance or user behavior? For example, we could look at:\n\n*   Overall site traffic trends\n*   Performance of a specific marketing channel\n*   Engagement on a particular page\n*   Conversion rates for one of your forms\n*   Auditing a page for conversion opportunities"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "now give me the views for my ask the tile expert form for yesterday ?",
+        "display_blocks": [
+          {
+            "kind": "text",
+            "content": "now give me the views for my ask the tile expert form for yesterday ?"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "It looks like the custom dimension `customEvent:form_id` is not registered in GA4, or there might be a typo in how it's being called. This is preventing me from retrieving the views for your 'ask-the-tile-expert' form.\n\nTo fix this, please ensure that a custom dimension with the exact name `form_id` (scope: Event) is configured in your Google Analytics 4 property, and that your website is actively sending this parameter with your form events.\n\nOnce that's set up and a day of data has flowed through, I can answer your question about the form's views.\n\nWould you like me to try to find data for a different form or event, or perhaps look into general page views for yesterday?",
+        "display_blocks": [
+          {
+            "kind": "tool",
+            "name": "query_form_breakdown",
+            "input": {
+              "end_date": "2026-06-29",
+              "form_id": "ask-tile-expert",
+              "start_date": "2026-06-29"
+            },
+            "output": "{\"error\": \"InvalidArgument: 400 Did you mean customEvent:store_id? Field customEvent:form_id is not a valid dimension. For a list of valid dimensions and metrics, see https://developers.google.com/analytics/devguides/reporting/data/v1/api-schema \", \"hint\": \"If this is a GA4 permission/auth error, verify the service account has Viewer access on the property, the Analytics Data API is enabled, and GA4_PROPERTY_ID is the numeric property ID (not the G-XXXX measurement ID).\"}"
+          },
+          {
+            "kind": "text",
+            "content": "It looks like the custom dimension `customEvent:form_id` is not registered in GA4, or there might be a typo in how it's being called. This is preventing me from retrieving the views for your 'ask-the-tile-expert' form.\n\nTo fix this, please ensure that a custom dimension with the exact name `form_id` (scope: Event) is configured in your Google Analytics 4 property, and that your website is actively sending this parameter with your form events.\n\nOnce that's set up and a day of data has flowed through, I can answer your question about the form's views.\n\nWould you like me to try to find data for a different form or event, or perhaps look into general page views for yesterday?"
+          }
+        ]
+      }
+    ]
   }
 ]
