@@ -16,5 +16,14 @@
     "created_at": "2026-06-30T12:57:16Z",
     "image_b64": null,
     "image_mime": null
+  },
+  {
+    "id": "a9f81bc334fb",
+    "category": "Event Definitions",
+    "title": "Event Name: mkt-form-event",
+    "description": "Event Name: mkt-form-event\nPurpose: This event now tracks the full lifecycle of your forms: views, closes, and submissions.\nAssociated Custom Dimensions:\ncustomEvent:popup_id: Identifies the specific form (e.g., 'ask-tile-expert', 'book-a-consultation', 'tareeq-figurine').\ncustomEvent:action: Identifies the action a user took with the form, with the following possible values:\nviewed\nclosed\nsubmitted",
+    "created_at": "2026-07-01T07:37:10Z",
+    "image_b64": null,
+    "image_mime": null
   }
 ]
