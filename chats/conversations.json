@@ -1017,5 +1017,12 @@
         ]
       }
     ]
+  },
+  {
+    "id": "ebcb86ce34de",
+    "title": "New chat",
+    "created_at": "2026-07-01T09:52:26.518204Z",
+    "updated_at": "2026-07-01T09:52:26.518217Z",
+    "messages": []
   }
 ]
