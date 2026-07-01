@@ -3,7 +3,7 @@
     "id": "cb15ae2caa18",
     "title": "i have just uploaded training data, digest it",
     "created_at": "2026-06-30T12:59:53.301206Z",
-    "updated_at": "2026-07-01T07:58:55.249664Z",
+    "updated_at": "2026-07-01T08:00:30.664037Z",
     "messages": [
       {
         "role": "user",
@@ -947,6 +947,21 @@
           {
             "kind": "text",
             "content": "how many leads do i collect from 404 page ?"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "display_blocks": []
+      },
+      {
+        "role": "user",
+        "content": "??",
+        "display_blocks": [
+          {
+            "kind": "text",
+            "content": "??"
           }
         ]
       },
