@@ -1154,9 +1154,36 @@
   },
   {
     "id": "5c2aae6ea586",
-    "title": "New chat",
+    "title": "how many leads am i getting from my floor tile page",
     "created_at": "2026-07-01T10:14:25.219862Z",
-    "updated_at": "2026-07-01T10:14:25.219873Z",
-    "messages": []
+    "updated_at": "2026-07-01T10:14:42.877661Z",
+    "messages": [
+      {
+        "role": "user",
+        "content": "how many leads am i getting from my floor tile page",
+        "display_blocks": [
+          {
+            "kind": "text",
+            "content": "how many leads am i getting from my floor tile page"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "To provide you with the most accurate lead generation data from your floor tile page, I need to know the timeframe you're interested in. Please specify the start and end dates for your query.",
+        "display_blocks": [
+          {
+            "kind": "tool",
+            "name": "get_data_coverage",
+            "input": {},
+            "output": "{\"google_analytics\": {\"source\": \"ga4_live\", \"property_id\": \"250049740\", \"note\": \"Live GA4 property. Data typically retained 14 months.\"}, \"google_ads\": {\"source\": \"mock\", \"data_start\": \"2026-03-01\", \"data_end\": \"2026-06-04\"}, \"meta_ads\": {\"source\": \"mock\", \"data_start\": \"2026-03-01\", \"data_end\": \"2026-06-04\"}}"
+          },
+          {
+            "kind": "text",
+            "content": "To provide you with the most accurate lead generation data from your floor tile page, I need to know the timeframe you're interested in. Please specify the start and end dates for your query."
+          }
+        ]
+      }
+    ]
   }
 ]
