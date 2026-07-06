@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from agent import chat
 import knowledge_base
 import chat_store
+import doc_extract
 
 load_dotenv()
 
@@ -300,30 +301,55 @@ if page == "Training":
                 placeholder="e.g. Wholesale Inquiry Form, Tiles PLP, Support Chatbot",
             )
         description = st.text_area(
-            "Definition / how it works / what to know",
+            "Definition / notes (optional if you upload a document below)",
             height=140,
             placeholder=(
-                "Describe it in plain language. Examples:\n"
+                "Describe it in plain language, OR upload a document below and leave this "
+                "blank to use the document's contents. Examples:\n"
                 "- This form triggers as a popup after 30s on any /products/ page.\n"
-                "- Our PLP shows 24 products per page with infinite scroll; 'add_to_cart' "
-                "fires from the quick-view modal, not the card.\n"
-                "- The chatbot 'lead_captured' event fires only after the user shares a "
-                "phone number, not on chat open.\n"
-                "- LEARNING: Treat 'generate_lead' as our true lead metric, not form_submit."
+                "- LEARNING: Treat 'generate_lead' as our true lead metric, not form_submit.\n"
+                "- (Upload a price list / catalog / past report as Excel or PDF.)"
             ),
         )
-        screenshot = st.file_uploader(
-            "Screenshot (optional)", type=["png", "jpg", "jpeg", "webp", "gif"]
-        )
+        col_a, col_b = st.columns(2)
+        with col_a:
+            screenshot = st.file_uploader(
+                "Screenshot (optional)", type=["png", "jpg", "jpeg", "webp", "gif"]
+            )
+        with col_b:
+            document = st.file_uploader(
+                "Document (Excel / CSV / PDF / Word / text)",
+                type=["xlsx", "xls", "csv", "pdf", "docx", "txt", "md"],
+                help="Text is extracted and becomes the AI's knowledge. Great for price "
+                     "lists, product catalogs, past reports, SOPs. Old .doc: save as .docx first.",
+            )
         submitted = st.form_submit_button("Add to knowledge base", type="primary")
         if submitted:
-            if not title.strip() or not description.strip():
-                st.error("Title and description are required.")
+            doc_text = ""
+            doc_note = ""
+            if document is not None:
+                with st.spinner(f"Reading {document.name}..."):
+                    doc_text, kind = doc_extract.extract_text(document.name, document.read())
+                if not doc_text:
+                    st.error(f"Couldn't read {document.name}. Supported: .xlsx .xls .csv "
+                             ".pdf .docx .txt .md")
+                    st.stop()
+                doc_note = f"\n\n[Extracted from uploaded file: {document.name}]\n{doc_text}"
+
+            final_title = title.strip() or (document.name if document else "")
+            final_description = (description.strip() + doc_note).strip()
+
+            if not final_title:
+                st.error("Please give it a title (or upload a document to use its name).")
+            elif not final_description:
+                st.error("Add a description or upload a document.")
             else:
                 img_bytes = screenshot.read() if screenshot else None
                 img_mime = screenshot.type if screenshot else None
-                knowledge_base.add_entry(category, title, description, img_bytes, img_mime)
-                st.success(f"Added '{title}' to {category}.")
+                knowledge_base.add_entry(category, final_title, final_description,
+                                         img_bytes, img_mime)
+                extra = f" (read {document.name})" if document else ""
+                st.success(f"Added '{final_title}' to {category}{extra}.")
                 st.rerun()
 
     st.divider()
