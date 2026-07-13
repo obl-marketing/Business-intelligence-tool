@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>STARS — Server Provisioning Request</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    color: #1a1a1a; line-height: 1.4; font-size: 12px; max-width: 780px; margin: 0 auto; padding: 16px;
+  }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: #b45309;
+       border-bottom: 2px solid #f0e6d2; padding-bottom: 3px; margin: 16px 0 8px; }
+  .sub { color: #666; margin: 0 0 12px; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+  th { width: 34%; color: #555; font-weight: 600; }
+  code { background: #f5f5f5; padding: 1px 5px; border-radius: 3px; font-size: 11px;
+         font-family: SFMono-Regular, Consolas, monospace; }
+  .callout { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 6px;
+             padding: 8px 12px; margin: 8px 0; }
+  ul { margin: 4px 0 8px; padding-left: 18px; }
+  li { margin: 2px 0; }
+  .foot { color: #888; font-size: 10.5px; margin-top: 14px; border-top: 1px solid #eee; padding-top: 8px; }
+  .two { display: flex; gap: 16px; }
+  .two > div { flex: 1; }
+</style>
+</head>
+<body>
+
+  <h1>STARS — Server Provisioning Request</h1>
+  <p class="sub">Internal marketing-analytics web tool · lightweight Python (Streamlit) app · hosted on a Windows server</p>
+
+  <h2>1 · Machine &amp; specs</h2>
+  <table>
+    <tr><th>Operating system</th><td>Existing <strong>Windows</strong> server (Windows Server 2019/2022, or Windows 10/11 Pro). Can run on a shared box with spare capacity.</td></tr>
+    <tr><th>CPU</th><td>2 vCPU</td></tr>
+    <tr><th>RAM</th><td>4 GB available to the app</td></tr>
+    <tr><th>Free disk</th><td><strong>~10 GB free</strong> (the app + Python + dependencies; no database server needed)</td></tr>
+  </table>
+
+  <h2>2 · Software to install</h2>
+  <ul>
+    <li><strong>Python 3.11</strong> (from python.org — tick “Add to PATH”)</li>
+    <li><strong>Git for Windows</strong></li>
+    <li><strong>NSSM</strong> (to run the app as a Windows service — nssm.cc)</li>
+    <li><strong>OpenSSH Server</strong> (built-in Windows feature — enables automated deployments)</li>
+  </ul>
+
+  <h2>3 · Network / firewall</h2>
+  <table>
+    <tr><th>Inbound</th><td>Open TCP <strong>443</strong> (HTTPS) for users — or <strong>8501</strong> if access stays internal only.</td></tr>
+    <tr><th>Inbound (deploy)</th><td>TCP <strong>22</strong> (OpenSSH) — can be restricted to GitHub Actions / our IPs.</td></tr>
+    <tr><th>Outbound (required)</th><td>Allow outbound <strong>HTTPS (443)</strong> to the internet — specifically:<br>
+      <code>generativelanguage.googleapis.com</code><br>
+      <code>analyticsdata.googleapis.com</code><br>
+      <code>api.github.com</code></td></tr>
+  </table>
+  <div class="callout">
+    <strong>⚠ Most important:</strong> the app makes <strong>outbound</strong> calls to the three domains above.
+    If the server’s firewall blocks outbound internet by default, the app installs fine but will not
+    function. Please confirm outbound HTTPS to those hosts is permitted.
+  </div>
+
+  <h2>4 · Access &amp; domain</h2>
+  <table>
+    <tr><th>Login account</th><td>A Windows admin account we can use, with OpenSSH access. We will provide an SSH public key for you to add.</td></tr>
+    <tr><th>Domain (optional)</th><td>A subdomain such as <code>stars.orientbell.com</code> with a DNS record pointing to this server, so the tool has a clean HTTPS URL. If internal-only, <code>http://SERVER-IP:8501</code> is acceptable to start.</td></tr>
+    <tr><th>HTTPS (if domain)</th><td>Standard IIS + Application Request Routing reverse proxy to <code>127.0.0.1:8501</code> with an internal certificate.</td></tr>
+  </table>
+
+  <h2>5 · Please send back</h2>
+  <ul>
+    <li>Server IP / hostname</li>
+    <li>SSH username (we’ll supply the public key to authorise)</li>
+    <li>Confirmation that inbound 443 (or 8501) and outbound 443 to the three domains are open</li>
+    <li>The subdomain, once created (if applicable)</li>
+  </ul>
+
+  <div class="two">
+    <div>
+      <h2>What it does NOT need</h2>
+      <ul>
+        <li>No database server</li>
+        <li>No inbound access to internal systems</li>
+        <li>No GPU / heavy compute (AI runs on Google’s cloud, off-server)</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Data &amp; security</h2>
+      <ul>
+        <li>App data (small text files) syncs to our private GitHub repo</li>
+        <li>API keys stored in a local, restricted config file only</li>
+        <li>Access protected by a shared team password</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="foot">
+    Full step-by-step install guide is maintained by the requester (deploy/SETUP.md). This sheet is the
+    provisioning summary only. Questions → reply to the requester.
+  </p>
+
+</body>
+</html>
