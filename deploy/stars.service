@@ -1,0 +1,20 @@
+[Unit]
+Description=STARS - Self-Trained Analyst for Reporting & Strategy
+After=network.target
+
+[Service]
+Type=simple
+User=stars
+WorkingDirectory=/opt/stars
+# Secrets live in this file as KEY=VALUE lines (chmod 600). See SETUP.
+EnvironmentFile=/opt/stars/stars.env
+ExecStart=/opt/stars/.venv/bin/streamlit run app.py \
+  --server.port 8501 \
+  --server.address 127.0.0.1 \
+  --server.headless true \
+  --browser.gatherUsageStats false
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

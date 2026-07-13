@@ -75,10 +75,15 @@ PROVIDER_DEFAULT_MODEL = {
 st.set_page_config(page_title="STARS — Self-Trained Analyst for Reporting & Strategy",
                    page_icon="⭐", layout="wide")
 
+# Shared-password gate (active only when APP_PASSWORD is set in secrets/env)
+import auth
+auth.require_login()
+
 # ---------- Sidebar ----------
 with st.sidebar:
     st.title("STARS ⭐")
     st.caption("**S**elf-**T**rained **A**nalyst for **R**eporting & **S**trategy")
+    auth.logout_button()
 
     _kb_n = knowledge_base.count()
     page = st.radio(
