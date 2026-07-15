@@ -1,6 +1,6 @@
-name: Deploy STARS to Windows server
+name: Deploy STARS to server
 
-# Push to the branch -> the Windows server pulls and restarts automatically.
+# Push to the branch -> the Ubuntu server pulls and restarts automatically.
 on:
   push:
     branches:
@@ -10,14 +10,18 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy over SSH (Windows / OpenSSH)
+      - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}       # server IP or hostname
-          username: ${{ secrets.DEPLOY_USER }}   # a Windows admin user
+          username: ${{ secrets.DEPLOY_USER }}   # e.g. stars
           key: ${{ secrets.DEPLOY_SSH_KEY }}     # private key (see SETUP)
           port: ${{ secrets.DEPLOY_PORT }}       # usually 22
-          # Runs the update script already on the server. Requires the OpenSSH
-          # default shell to be PowerShell (SETUP step W6) OR this cmd form works
-          # from the default cmd shell too:
-          script: powershell -ExecutionPolicy Bypass -File C:\stars\deploy\update.ps1
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}        # e.g. /opt/stars
+            git fetch --all
+            git reset --hard origin/${{ github.ref_name }}
+            ./.venv/bin/pip install -q -r requirements.txt
+            sudo systemctl restart stars
+            echo "Deployed $(git rev-parse --short HEAD)"
