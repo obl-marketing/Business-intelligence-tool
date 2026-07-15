@@ -43,11 +43,13 @@
 
   <h2>2 · Software (installed via apt during setup)</h2>
   <ul>
-    <li><code>python3-venv</code>, <code>python3-pip</code> — Python 3.10+ runtime</li>
+    <li><code>python3-venv</code>, <code>python3-pip</code>, <code>python3-dev</code> — Python 3.10+ runtime</li>
+    <li><code>build-essential</code> — compiler toolchain (needed on newest Ubuntu, e.g. 26.04 LTS)</li>
     <li><code>git</code> — to pull the code</li>
     <li><code>nginx</code> + <code>certbot</code> — reverse proxy &amp; free HTTPS certificate</li>
     <li>(runs as a <code>systemd</code> service — no extra software)</li>
   </ul>
+  <p class="sub" style="margin-top:0;">Confirmed compatible with Ubuntu 22.04, 24.04, and 26.04 LTS.</p>
 
   <h2>3 · Network / firewall</h2>
   <table>

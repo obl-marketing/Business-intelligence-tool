@@ -13,8 +13,11 @@ Run the commands as a sudo-capable user. Replace `stars.orientbell.com` with you
 ## 1. Install system packages
 ```bash
 sudo apt update
-sudo apt install -y python3-venv python3-pip git nginx
+sudo apt install -y python3-venv python3-pip python3-dev build-essential git nginx
 ```
+> `build-essential` + `python3-dev` let pip compile any dependency that doesn't yet
+> ship a pre-built package for your Python version — relevant on the newest Ubuntu
+> releases (e.g. 26.04 LTS), which bundle a very recent Python.
 
 ## 2. Create an app user and clone the repo
 ```bash
