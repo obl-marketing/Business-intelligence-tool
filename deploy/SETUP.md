@@ -20,11 +20,16 @@ sudo apt install -y python3-venv python3-pip python3-dev build-essential git ngi
 > releases (e.g. 26.04 LTS), which bundle a very recent Python.
 
 ## 2. Create an app user and clone the repo
+`useradd -m` creates `/opt/stars` with skeleton files, so clone via a temp dir
+(a direct clone into a non-empty directory fails):
 ```bash
 sudo useradd -m -d /opt/stars -s /bin/bash stars
-sudo -u stars git clone https://github.com/obl-marketing/business-intelligence-tool.git /opt/stars
-cd /opt/stars
-sudo -u stars git checkout claude/relaxed-volta-hvi2d
+TMP=$(mktemp -d)
+sudo git clone https://github.com/obl-marketing/business-intelligence-tool.git "$TMP"
+sudo cp -a "$TMP/." /opt/stars/
+sudo rm -rf "$TMP"
+sudo git -C /opt/stars checkout claude/relaxed-volta-hvi2d
+sudo chown -R stars:stars /opt/stars
 ```
 
 ## 3. Create the Python environment

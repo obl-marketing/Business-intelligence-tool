@@ -34,13 +34,19 @@ id -u "$APP_USER" >/dev/null 2>&1 || useradd -m -d "$APP_DIR" -s /bin/bash "$APP
 
 say "3/7  Getting the code"
 if [ -d "$APP_DIR/.git" ]; then
-  sudo -u "$APP_USER" git -C "$APP_DIR" fetch --all
-  sudo -u "$APP_USER" git -C "$APP_DIR" checkout "$BRANCH"
-  sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard "origin/$BRANCH"
+  git -C "$APP_DIR" fetch --all
+  git -C "$APP_DIR" checkout "$BRANCH"
+  git -C "$APP_DIR" reset --hard "origin/$BRANCH"
 else
-  sudo -u "$APP_USER" git clone "$REPO" "$APP_DIR"
-  sudo -u "$APP_USER" git -C "$APP_DIR" checkout "$BRANCH"
+  # /opt/stars already exists as the service user's home dir (non-empty),
+  # so a direct clone into it fails. Clone to a temp dir and copy the repo in.
+  TMP="$(mktemp -d)"
+  git clone "$REPO" "$TMP"
+  cp -a "$TMP/." "$APP_DIR/"
+  rm -rf "$TMP"
+  git -C "$APP_DIR" checkout "$BRANCH"
 fi
+chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 
 say "4/7  Building the Python environment (this can take a couple of minutes)"
 sudo -u "$APP_USER" python3 -m venv "$APP_DIR/.venv"
