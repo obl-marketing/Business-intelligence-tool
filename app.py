@@ -47,7 +47,8 @@ def _get_secret(key: str, default: str = "") -> str:
 
 # Copy data-source secrets into env vars so the non-Streamlit layers
 # (tools.py / ga4_client.py) can read them.
-for _key in ("DATA_SOURCE", "GA4_PROPERTY_ID", "GA4_SERVICE_ACCOUNT_JSON", "SITE_BASE_URL",
+for _key in ("DATA_SOURCE", "GA4_PROPERTY_ID", "GA4_SERVICE_ACCOUNT_JSON",
+             "GA4_SERVICE_ACCOUNT_FILE", "SITE_BASE_URL",
              "GITHUB_TOKEN", "GITHUB_REPO", "GITHUB_BRANCH"):
     _val = _get_secret(_key)
     if _val:
@@ -59,7 +60,8 @@ _PERSISTENT = persistent_store.github_enabled()
 _GA4_LIVE = (
     os.environ.get("DATA_SOURCE", "mock").lower() == "ga4"
     and bool(os.environ.get("GA4_PROPERTY_ID"))
-    and bool(os.environ.get("GA4_SERVICE_ACCOUNT_JSON"))
+    and bool(os.environ.get("GA4_SERVICE_ACCOUNT_JSON")
+             or os.environ.get("GA4_SERVICE_ACCOUNT_FILE"))
 )
 
 

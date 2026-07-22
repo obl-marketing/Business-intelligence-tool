@@ -16,6 +16,7 @@ from functools import lru_cache
 def is_configured() -> bool:
     return bool(os.environ.get("GA4_PROPERTY_ID")) and bool(
         os.environ.get("GA4_SERVICE_ACCOUNT_JSON")
+        or os.environ.get("GA4_SERVICE_ACCOUNT_FILE")
     )
 
 
@@ -28,10 +29,24 @@ def _client():
     from google.analytics.data_v1beta import BetaAnalyticsDataClient
     from google.oauth2 import service_account
 
-    info = json.loads(os.environ["GA4_SERVICE_ACCOUNT_JSON"])
-    credentials = service_account.Credentials.from_service_account_info(
-        info, scopes=["https://www.googleapis.com/auth/analytics.readonly"]
-    )
+    scopes = ["https://www.googleapis.com/auth/analytics.readonly"]
+    raw_json = os.environ.get("GA4_SERVICE_ACCOUNT_JSON")
+    file_path = os.environ.get("GA4_SERVICE_ACCOUNT_FILE")
+    if raw_json:
+        credentials = service_account.Credentials.from_service_account_info(
+            json.loads(raw_json), scopes=scopes
+        )
+    elif file_path:
+        # A path to the downloaded service-account .json file (easier on a
+        # server - the JSON can stay multi-line in its own file).
+        credentials = service_account.Credentials.from_service_account_file(
+            file_path, scopes=scopes
+        )
+    else:
+        raise RuntimeError(
+            "Set GA4_SERVICE_ACCOUNT_JSON (inline JSON) or "
+            "GA4_SERVICE_ACCOUNT_FILE (path to the .json key file)."
+        )
     return BetaAnalyticsDataClient(credentials=credentials)
 
 
