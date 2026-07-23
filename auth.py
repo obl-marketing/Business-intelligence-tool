@@ -22,6 +22,8 @@ import os
 
 import streamlit as st
 
+import user_store
+
 
 def _secret(key: str) -> str:
     try:
@@ -74,8 +76,9 @@ def require_login() -> None:
             submitted = st.form_submit_button("Sign in", type="primary")
         if submitted:
             key = (email or "").strip().lower()
-            expected = users.get(key)
-            if expected is not None and hmac.compare_digest(password, expected):
+            # key must be in the roster (APP_USERS); the current password may be
+            # the seed OR a self-set override stored in user_store.
+            if key in users and user_store.verify(key, password, seed_password=users[key]):
                 st.session_state["_authed"] = True
                 st.session_state["user_email"] = key
                 st.rerun()
@@ -110,3 +113,30 @@ def logout_button() -> None:
         for k in ("_authed", "user_email", "messages", "active_chat_id"):
             st.session_state.pop(k, None)
         st.rerun()
+
+
+def password_change_ui() -> None:
+    """Render a 'change my password' expander in the sidebar. Only meaningful
+    in multi-user mode (each user has their own login)."""
+    if not st.session_state.get("_authed"):
+        return
+    users = _users()
+    if not users:
+        return  # shared-password / open mode has no per-user password
+    me = current_user()
+    with st.expander("🔑 Change my password"):
+        with st.form("pw_change", clear_on_submit=True):
+            old = st.text_input("Current password", type="password")
+            new1 = st.text_input("New password", type="password")
+            new2 = st.text_input("Confirm new password", type="password")
+            submitted = st.form_submit_button("Update password", type="primary")
+        if submitted:
+            if not user_store.verify(me, old, seed_password=users.get(me)):
+                st.error("Current password is incorrect.")
+            elif len(new1) < 4:
+                st.error("New password must be at least 4 characters.")
+            elif new1 != new2:
+                st.error("The two new passwords don't match.")
+            else:
+                user_store.set_password(me, new1)
+                st.success("Password updated. Use your new password next time you sign in.")

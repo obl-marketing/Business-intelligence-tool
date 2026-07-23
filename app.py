@@ -87,6 +87,7 @@ with st.sidebar:
     st.title("STARS ⭐")
     st.caption("**S**elf-**T**rained **A**nalyst for **R**eporting & **S**trategy")
     auth.logout_button()
+    auth.password_change_ui()
 
     _kb_n = knowledge_base.count()
     page = st.radio(
