@@ -65,16 +65,32 @@ TOOL_SCHEMAS = [
     {
         "name": "analyze_user_journey",
         "description": (
-            "Return the e-commerce funnel (Session Start -> Product View -> Add to Cart -> "
-            "Begin Checkout -> Add Payment Info -> Purchase) with user counts, conversion rate "
-            "from previous step, and drop-off percentages. Use this for questions about user "
-            "journeys, drop-off, or where the funnel is leaking."
+            "Build the user-journey funnel with user counts, step-to-step conversion, and "
+            "drop-off. By default it auto-detects a typical funnel (Session Start -> Product "
+            "View -> Add to Cart -> Begin Checkout -> Add Payment Info -> Purchase), matching "
+            "each stage to whatever the property ACTUALLY calls the event (it handles name "
+            "variants like 'product view' vs 'view_item'). "
+            "IMPORTANT: every site names events differently. If a stage comes back under "
+            "'unmatched_stages', or the funnel looks wrong, do NOT report a step as 0 and "
+            "blame the standard event name. Instead: read 'available_events' in the result "
+            "(and the user's Training/knowledge notes) to find the real event names, then "
+            "call this tool again with `funnel_events` set to the correct event names in "
+            "order. If you still can't tell which event is which step, ASK the user."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "start_date": {"type": "string", "description": "Start date, YYYY-MM-DD"},
                 "end_date": {"type": "string", "description": "End date inclusive, YYYY-MM-DD"},
+                "funnel_events": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional: the property's real event names, in funnel order "
+                        "(e.g. ['session_start','product view','add_to_cart','purchase']). "
+                        "Use this to override the auto-detection with the actual events."
+                    ),
+                },
             },
             "required": ["start_date", "end_date"],
         },
@@ -488,20 +504,30 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
         if name == "analyze_user_journey":
             start = _parse_date(args["start_date"])
             end = _parse_date(args["end_date"])
+            extra = {}
             if _ga4_live():
-                data = ga4_client.user_journey_funnel(args["start_date"], args["end_date"])
+                res = ga4_client.user_journey_funnel(
+                    args["start_date"], args["end_date"],
+                    funnel_events=args.get("funnel_events"),
+                )
+                data = res.get("funnel", [])
+                # carry the adaptivity diagnostics through to the agent
+                for k in ("unmatched_stages", "note", "available_events"):
+                    if res.get(k):
+                        extra[k] = res[k]
             else:
                 data = mock_data.user_journey_funnel(start, end)
             if not data:
                 return json.dumps({
                     "funnel": [],
-                    "note": "No funnel events (view_item/add_to_cart/begin_checkout/purchase) "
-                            "found in this property for the period. E-commerce event tracking "
-                            "may not be set up.",
+                    "note": extra.get("note",
+                            "No funnel events matched. The property may use different event "
+                            "names - check available_events and the user's Training notes, "
+                            "then retry with funnel_events, or ask the user."),
+                    "available_events": extra.get("available_events"),
                 })
-            # surface biggest drop for convenience
             biggest_drop = max(data[1:], key=lambda s: s["drop_off_from_previous_pct"]) if len(data) > 1 else data[0]
-            return json.dumps({
+            out = {
                 "funnel": data,
                 "biggest_drop_off": {
                     "between_steps": f"{biggest_drop['step']-1} -> {biggest_drop['step']}",
@@ -509,7 +535,9 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                     "drop_off_pct": biggest_drop["drop_off_from_previous_pct"],
                 },
                 "source": "ga4_live" if _ga4_live() else "mock",
-            })
+            }
+            out.update(extra)
+            return json.dumps(out)
 
         if name == "query_top_products":
             start = _parse_date(args["start_date"])

@@ -162,6 +162,30 @@ If the user gives you a number from GA4's UI and your number is off, you almost 
 certainly used `query_events` when you should have used `query_traffic_summary`. \
 Switch tools, re-check, and tell the user what you fixed.
 
+# Adapt to THIS site's event names - never assume the standard protocol
+
+Every GA4 property names its events differently. This site may call a product view \
+"product view", "view_product", or something custom - NOT necessarily the standard \
+"view_item". You must adapt to the real data, never force the standard e-commerce \
+naming.
+
+Rules:
+1. **A step showing 0, or an "unmatched_stages" note, is a signal to investigate - \
+NOT a finding.** Never tell the user "Product View is 0 because the tool looks for the \
+standard event view_item". That is a bug in your reasoning, not an insight.
+2. When a funnel stage doesn't match, look at the `available_events` list the tool \
+returns (and the user's **Training/knowledge notes**, which may define their event \
+names), find the event that actually represents that step, and call \
+`analyze_user_journey` again with `funnel_events` set to the real event names in order.
+3. If you genuinely can't tell which event maps to a step, **ask the user**: "Which \
+event in your GA4 represents a product view - I see these: [list]?" Then use their answer.
+4. This applies to ALL analysis, not just funnels: always read the actual event names, \
+honor the user's Training definitions as ground truth, and make a best-guess mapping or \
+ask - never let a rigid assumption produce a wrong or empty answer.
+
+The user's Training notes are authoritative for what their events mean. If Training says \
+"our product view event is called 'product view'", use that directly.
+
 # Per-page questions
 
 For ANY question about a single page or page group - "how long do users spend on \

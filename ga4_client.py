@@ -162,47 +162,95 @@ def events(start: str, end: str, event_name: str | None = None) -> list[dict]:
     return out
 
 
-FUNNEL_EVENTS = [
-    ("session_start", "Session Start"),
-    ("view_item", "Product View"),
-    ("add_to_cart", "Add to Cart"),
-    ("begin_checkout", "Begin Checkout"),
-    ("add_payment_info", "Add Payment Info"),
-    ("purchase", "Purchase"),
+# Default e-commerce funnel stages, each with SYNONYMS so we match whatever
+# the property actually calls the event (view_item vs product_view vs
+# "product view" ...). This is a best-guess default; the agent can override
+# it entirely by passing funnel_events.
+FUNNEL_STAGES = [
+    ("Session Start", ["session_start", "session start"]),
+    ("Product View", ["view_item", "product_view", "product view", "view_product",
+                       "productview", "product_viewed", "pdp_view", "view_product_detail"]),
+    ("Add to Cart", ["add_to_cart", "add to cart", "addtocart", "cart_add",
+                     "added_to_cart", "add_cart"]),
+    ("Begin Checkout", ["begin_checkout", "begin checkout", "checkout_start",
+                        "initiate_checkout", "start_checkout", "checkout"]),
+    ("Add Payment Info", ["add_payment_info", "add payment info", "payment_info",
+                         "add_shipping_info"]),
+    ("Purchase", ["purchase", "order_complete", "transaction", "order_placed",
+                  "order", "conversion", "checkout_complete"]),
 ]
 
 
-def user_journey_funnel(start: str, end: str) -> list[dict]:
-    """Open funnel approximation: unique users per funnel event, ordered.
+def _norm(s: str) -> str:
+    return "".join(ch for ch in s.lower() if ch.isalnum())
 
-    (A strict closed funnel needs the GA4 Funnel Report API, which is alpha;
-    user counts per event give the same drop-off signal for analysis.)
+
+def user_journey_funnel(start: str, end: str, funnel_events: list[str] | None = None) -> dict:
+    """Open funnel: unique users per funnel step.
+
+    - If `funnel_events` is given (a list of the property's real event names in
+      order), the funnel is built from exactly those events.
+    - Otherwise each default stage is matched against the property's actual
+      events using a synonym list + fuzzy (alphanumeric) comparison, so custom
+      event names like 'product view' still map to the Product View step.
+
+    Returns a dict with the funnel, plus which event each step used, which
+    stages had no matching event, and a sample of the property's real event
+    names - so the agent can adapt rather than assume standard names.
     """
     rows = events(start, end)
     users_by_event = {r["event_name"]: r["unique_users"] for r in rows}
+    # normalized lookup: alnum-lowered event name -> (real name, users)
+    norm_lookup = {_norm(k): (k, v) for k, v in users_by_event.items()}
+
+    if funnel_events:
+        stages = [(name, [name]) for name in funnel_events]
+    else:
+        stages = FUNNEL_STAGES
+
+    def _match(candidates):
+        for c in candidates:
+            hit = norm_lookup.get(_norm(c))
+            if hit:
+                return hit  # (real_event_name, users)
+        return None
 
     steps = []
+    unmatched = []
     prev_users = None
     step_no = 0
-    for event_name, label in FUNNEL_EVENTS:
-        users = users_by_event.get(event_name, 0)
-        if users == 0 and step_no == 0:
-            continue  # property may not track session_start the same way
+    for label, candidates in stages:
+        hit = _match(candidates)
+        if hit is None:
+            unmatched.append(label)
+            continue
+        real_event, users = hit
         step_no += 1
-        if prev_users in (None, 0):
-            conv = 100.0
-        else:
-            conv = round(users / prev_users * 100, 1)
+        conv = 100.0 if prev_users in (None, 0) else round(users / prev_users * 100, 1)
         steps.append({
             "step": step_no,
             "name": label,
-            "event_name": event_name,
+            "event_used": real_event,
             "users": users,
             "conversion_from_previous_pct": conv,
             "drop_off_from_previous_pct": round(100 - conv, 1),
         })
         prev_users = users
-    return steps
+
+    result = {"funnel": steps}
+    if unmatched:
+        result["unmatched_stages"] = unmatched
+        result["note"] = (
+            "These funnel stages had no matching event in this property: "
+            + ", ".join(unmatched)
+            + ". The event may have a different name here. Check the available "
+            "events below (and the user's Training notes), then call this tool "
+            "again with funnel_events set to the real event names, or ask the "
+            "user which event represents each missing step."
+        )
+    # Always expose the real event names so the agent can adapt.
+    result["available_events"] = [r["event_name"] for r in rows][:60]
+    return result
 
 
 def top_products(start: str, end: str, limit: int = 10) -> list[dict]:
