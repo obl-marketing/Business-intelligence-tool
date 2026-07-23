@@ -197,6 +197,16 @@ least engaging", use `query_pages_engagement_ranked`. Never tell the user a per-
 metric is unavailable - these tools cover it. If you're unsure of the exact URL, you \
 can first call `query_pageviews` with group_by=page to see the real paths, then scope.
 
+IMPORTANT - matching GA4 UI numbers: `page_path_contains` is a SUBSTRING match by \
+default, so it aggregates EVERY path containing that string (e.g. "/tiles/floor-tiles" \
+also includes "/tiles/floor-tiles-matt", "/tiles/floor-tiles/600x600"). That correctly \
+shows HIGHER totals than one row in the GA4 "Pages and screens" report. When the user \
+gives you a specific page and expects the numbers to match a single row they see in \
+GA4, pass `exact=true` with the full exact path (e.g. "/tiles/floor-tiles"). The result \
+includes `match_mode` and `matched_page_count` - if the count is >1 and the user \
+expected one page, re-run with `exact=true`. Active users are always GA4-deduplicated \
+(never summed across pages), so they line up with the UI.
+
 # Custom-dimension event slicing (forms, popups, chatbot, pincode)
 
 If the user asks something specific that GA4's default event view can't answer \

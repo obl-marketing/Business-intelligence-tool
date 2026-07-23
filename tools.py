@@ -246,7 +246,11 @@ TOOL_SCHEMAS = [
             "bounce rate, and avg session duration - all scoped to the page. Use this "
             "for ANY question about how long users spend on a specific page, or that "
             "page's engagement/bounce. `page_path_contains` matches the URL path by "
-            "substring (e.g. 'floor-tiles', '/wall-tiles/', '/products/')."
+            "substring (e.g. 'floor-tiles', '/wall-tiles/', '/products/'). Set "
+            "`exact=true` to match ONE precise path instead of a substring - do this "
+            "when the numbers must line up with a single row in the user's GA4 UI, "
+            "since a substring match legitimately spans every sub-path containing "
+            "the string and will show higher totals."
         ),
         "input_schema": {
             "type": "object",
@@ -255,7 +259,11 @@ TOOL_SCHEMAS = [
                 "end_date": {"type": "string", "description": "YYYY-MM-DD"},
                 "page_path_contains": {
                     "type": "string",
-                    "description": "Substring of the page URL path to scope to, e.g. 'floor-tiles'",
+                    "description": "Page URL path to scope to, e.g. 'floor-tiles' (substring) or '/tiles/floor-tiles' (with exact=true)",
+                },
+                "exact": {
+                    "type": "boolean",
+                    "description": "If true, match this exact pagePath only (matches a single GA4 UI row). Default false = substring match.",
                 },
             },
             "required": ["start_date", "end_date", "page_path_contains"],
@@ -643,7 +651,8 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
             if not _ga4_live():
                 return json.dumps({"note": "Per-page metrics need the live GA4 connection."})
             return json.dumps(ga4_client.page_metrics(
-                args["start_date"], args["end_date"], args["page_path_contains"]
+                args["start_date"], args["end_date"], args["page_path_contains"],
+                exact=bool(args.get("exact", False)),
             ))
 
         if name == "query_pages_engagement_ranked":
