@@ -287,6 +287,7 @@ def traffic_summary(start: str, end: str) -> dict:
     """Account-level totals matching GA4 Reports > Acquisition Overview."""
     rows = _run_report(
         dimensions=[],
+        # GA4 Data API allows at most 10 metrics per request.
         metrics=[
             "activeUsers",
             "newUsers",
@@ -298,7 +299,6 @@ def traffic_summary(start: str, end: str) -> dict:
             "bounceRate",
             "averageSessionDuration",
             "sessionsPerUser",
-            "eventsPerSession",
         ],
         start_date=start,
         end_date=end,
@@ -318,7 +318,6 @@ def traffic_summary(start: str, end: str) -> dict:
         "bounce_rate_pct": round(_num(r["bounceRate"]) * 100, 2),
         "avg_session_duration_seconds": round(_num(r["averageSessionDuration"]), 1),
         "sessions_per_user": round(_num(r["sessionsPerUser"]), 2),
-        "events_per_session": round(_num(r["eventsPerSession"]), 2),
         "source_metric_note": (
             "Uses GA4 Data API metrics that match Reports > Acquisition Overview "
             "(activeUsers, sessions, engagementRate). NOT derived from event sums."
