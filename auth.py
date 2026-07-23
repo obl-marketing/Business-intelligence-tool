@@ -53,6 +53,21 @@ def _shared_password() -> str:
     return _secret("APP_PASSWORD")
 
 
+def _admins() -> set[str]:
+    """Admin emails. From APP_ADMINS if set, else the first APP_USERS entry
+    (which is your admin@... login)."""
+    raw = _secret("APP_ADMINS")
+    admins = {e.strip().lower() for e in raw.split(",") if e.strip()}
+    if admins:
+        return admins
+    users = _users()
+    return {next(iter(users))} if users else set()
+
+
+def is_admin(email: str | None = None) -> bool:
+    return (email or current_user()).strip().lower() in _admins()
+
+
 def require_login() -> None:
     users = _users()
     shared = _shared_password()
@@ -62,13 +77,12 @@ def require_login() -> None:
         st.session_state.setdefault("user_email", "local")
         return
 
-    if st.session_state.get("_authed"):
-        return
-
-    st.markdown("## 🔒 STARS")
-
     # Multi-user mode
     if users:
+        user_store.ensure_bootstrapped(users)  # seed roster from APP_USERS once
+        if st.session_state.get("_authed"):
+            return
+        st.markdown("## 🔒 STARS")
         st.caption("Sign in with your work email.")
         with st.form("login"):
             email = st.text_input("Email")
@@ -76,15 +90,18 @@ def require_login() -> None:
             submitted = st.form_submit_button("Sign in", type="primary")
         if submitted:
             key = (email or "").strip().lower()
-            # key must be in the roster (APP_USERS); the current password may be
-            # the seed OR a self-set override stored in user_store.
-            if key in users and user_store.verify(key, password, seed_password=users[key]):
+            # roster is now the user_store (seeded from APP_USERS + admin-added)
+            if user_store.exists(key) and user_store.verify(key, password, seed_password=users.get(key)):
                 st.session_state["_authed"] = True
                 st.session_state["user_email"] = key
                 st.rerun()
             else:
                 st.error("Incorrect email or password.")
         st.stop()
+
+    if st.session_state.get("_authed"):
+        return
+    st.markdown("## 🔒 STARS")
 
     # Single shared-password mode
     st.caption("Enter the team password to continue.")
@@ -140,3 +157,44 @@ def password_change_ui() -> None:
             else:
                 user_store.set_password(me, new1)
                 st.success("Password updated. Use your new password next time you sign in.")
+
+
+def manage_users_ui() -> None:
+    """Admin-only: add or remove logins from inside the app."""
+    if not st.session_state.get("_authed"):
+        return
+    if not _users():
+        return  # not in multi-user mode
+    if not is_admin():
+        return
+    admins = _admins()
+    with st.expander("👥 Manage users (admin)"):
+        st.caption("Add a login and share the email + password with the person. "
+                   "They can change their own password after signing in.")
+        with st.form("add_user", clear_on_submit=True):
+            new_email = st.text_input("New user's email")
+            new_pw = st.text_input("Set a password for them", type="password")
+            add = st.form_submit_button("Add / update user", type="primary")
+        if add:
+            e = (new_email or "").strip().lower()
+            if "@" not in e or "." not in e:
+                st.error("Please enter a valid email address.")
+            elif len(new_pw) < 4:
+                st.error("Password must be at least 4 characters.")
+            else:
+                user_store.add_user(e, new_pw)
+                st.success(f"✅ {e} can now sign in with the password you set.")
+
+        roster = user_store.roster()
+        if roster:
+            st.markdown("**Current users**")
+            for email in roster:
+                c1, c2 = st.columns([4, 1])
+                tag = " *(admin)*" if email in admins else ""
+                me_tag = " *(you)*" if email == current_user() else ""
+                c1.markdown(f"- {email}{tag}{me_tag}")
+                # can't remove yourself or another admin
+                if email != current_user() and email not in admins:
+                    if c2.button("Remove", key=f"rm_user_{email}"):
+                        user_store.remove_user(email)
+                        st.rerun()
