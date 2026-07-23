@@ -7,7 +7,7 @@ venv/
 *.json
 !package.json
 !knowledge/entries.json
-!chats/conversations.json
+!chats/*.json
 service-account-*.json
 
 # Preview artifacts (regenerate with `python3 build_preview.py`)

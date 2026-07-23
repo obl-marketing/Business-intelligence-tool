@@ -80,6 +80,7 @@ st.set_page_config(page_title="STARS — Self-Trained Analyst for Reporting & St
 # Shared-password gate (active only when APP_PASSWORD is set in secrets/env)
 import auth
 auth.require_login()
+_USER = auth.current_user()
 
 # ---------- Sidebar ----------
 with st.sidebar:
@@ -219,11 +220,11 @@ with st.sidebar:
     st.divider()
     st.subheader("Conversations")
     if st.button("+ New chat", use_container_width=True, type="primary"):
-        st.session_state["active_chat_id"] = chat_store.new_chat()
+        st.session_state["active_chat_id"] = chat_store.new_chat(_USER)
         st.session_state["messages"] = []
         st.rerun()
 
-    _saved_chats = chat_store.list_chats()
+    _saved_chats = chat_store.list_chats(_USER)
     _active = st.session_state.get("active_chat_id")
     if _saved_chats:
         for c in _saved_chats[:25]:
@@ -234,13 +235,13 @@ with st.sidebar:
                 if st.button(label, key=f"chat_{c['id']}", use_container_width=True,
                              help=f"{c['message_count']} messages · {c['updated_at']}"):
                     if c["id"] != _active:
-                        loaded = chat_store.load_chat(c["id"])
+                        loaded = chat_store.load_chat(c["id"], _USER)
                         st.session_state["active_chat_id"] = c["id"]
                         st.session_state["messages"] = loaded["messages"] if loaded else []
                         st.rerun()
             with col_b:
                 if st.button("✕", key=f"del_chat_{c['id']}", help="Delete this chat"):
-                    chat_store.delete_chat(c["id"])
+                    chat_store.delete_chat(c["id"], _USER)
                     if c["id"] == _active:
                         st.session_state["active_chat_id"] = None
                         st.session_state["messages"] = []
@@ -529,8 +530,8 @@ if prompt:
         "display_blocks": display_blocks,
     })
 
-    # --- Auto-save this conversation ---
+    # --- Auto-save this conversation (private to the logged-in user) ---
     if not st.session_state.get("active_chat_id"):
-        st.session_state["active_chat_id"] = chat_store.new_chat()
-    chat_store.save_chat(st.session_state["active_chat_id"], st.session_state["messages"])
+        st.session_state["active_chat_id"] = chat_store.new_chat(_USER)
+    chat_store.save_chat(st.session_state["active_chat_id"], st.session_state["messages"], _USER)
     st.rerun()  # refresh sidebar list to reflect new title/timestamp

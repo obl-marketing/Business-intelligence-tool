@@ -1,17 +1,13 @@
-"""Persistent multi-conversation chat history (ChatGPT/Gemini style).
+"""Persistent, per-user chat history.
 
-Stores all conversations in a single JSON file. Each conversation has:
-  id, title, created_at, updated_at, messages[]
+Each user's conversations live in their own file: chats/<user>.json, so
+one person's chats are never visible to another. Every public function
+takes a `user` (the logged-in email) to scope storage.
 
-`messages` is the same shape used in st.session_state["messages"] -
-a list of {"role", "content", "display_blocks"} entries, including
-chart specs so re-rendering stays rich.
-
-Streamlit Cloud's disk is ephemeral - export periodically or commit
-the JSON to the repo for true permanence.
+Training/knowledge data is NOT here - that stays shared across everyone
+(see knowledge_base.py).
 """
 from __future__ import annotations
-import base64
 import datetime as _dt
 import json
 import os
@@ -21,11 +17,20 @@ import uuid
 import persistent_store
 
 CHATS_DIR = os.environ.get("CHATS_DIR", "chats")
-CHATS_FILE = os.path.join(CHATS_DIR, "conversations.json")
 
 
 def _now() -> str:
     return _dt.datetime.utcnow().isoformat(timespec="microseconds") + "Z"
+
+
+def _safe(user: str) -> str:
+    """Turn an email into a safe filename fragment."""
+    s = re.sub(r"[^a-zA-Z0-9]+", "_", (user or "anon").strip().lower()).strip("_")
+    return s or "anon"
+
+
+def _file(user: str) -> str:
+    return os.path.join(CHATS_DIR, f"{_safe(user)}.json")
 
 
 def _ensure_dir() -> None:
@@ -33,29 +38,25 @@ def _ensure_dir() -> None:
 
 
 def _serialize_blocks(blocks: list[dict]) -> list[dict]:
-    """Make display_blocks JSON-safe. Chart specs and tool outputs are already
-    plain dicts/strings; this is mostly a defensive deep-clone."""
-    out = []
-    for b in blocks:
-        out.append({k: v for k, v in b.items()})
-    return out
+    return [dict(b) for b in blocks]
 
 
-def load_all() -> list[dict]:
-    data = persistent_store.read_json(CHATS_FILE, default=[])
+def load_all(user: str) -> list[dict]:
+    data = persistent_store.read_json(_file(user), default=[])
     return data if isinstance(data, list) else []
 
 
-def _save_all(chats: list[dict]) -> None:
+def _save_all(user: str, chats: list[dict]) -> None:
     _ensure_dir()
-    persistent_store.write_json(CHATS_FILE, chats,
-                                message=f"STARS: chats ({len(chats)} conversations)")
+    persistent_store.write_json(
+        _file(user), chats,
+        message=f"STARS: chats for {_safe(user)} ({len(chats)})",
+    )
 
 
-def list_chats() -> list[dict]:
-    """Metadata only, newest-first, for the sidebar list."""
+def list_chats(user: str) -> list[dict]:
     out = []
-    for c in load_all():
+    for c in load_all(user):
         out.append({
             "id": c["id"],
             "title": c.get("title") or "Untitled chat",
@@ -67,38 +68,32 @@ def list_chats() -> list[dict]:
     return out
 
 
-def load_chat(chat_id: str) -> dict | None:
-    for c in load_all():
+def load_chat(chat_id: str, user: str) -> dict | None:
+    for c in load_all(user):
         if c["id"] == chat_id:
             return c
     return None
 
 
-def new_chat() -> str:
+def new_chat(user: str) -> str:
     chat_id = uuid.uuid4().hex[:12]
-    chats = load_all()
+    chats = load_all(user)
     chats.append({
-        "id": chat_id,
-        "title": "New chat",
-        "created_at": _now(),
-        "updated_at": _now(),
-        "messages": [],
+        "id": chat_id, "title": "New chat",
+        "created_at": _now(), "updated_at": _now(), "messages": [],
     })
-    _save_all(chats)
+    _save_all(user, chats)
     return chat_id
 
 
-def save_chat(chat_id: str, messages: list[dict], title: str | None = None) -> None:
-    chats = load_all()
+def save_chat(chat_id: str, messages: list[dict], user: str, title: str | None = None) -> None:
+    chats = load_all(user)
     found = False
     for c in chats:
         if c["id"] == chat_id:
             c["messages"] = [
-                {
-                    "role": m["role"],
-                    "content": m["content"],
-                    "display_blocks": _serialize_blocks(m.get("display_blocks", [])),
-                }
+                {"role": m["role"], "content": m["content"],
+                 "display_blocks": _serialize_blocks(m.get("display_blocks", []))}
                 for m in messages
             ]
             c["updated_at"] = _now()
@@ -112,60 +107,31 @@ def save_chat(chat_id: str, messages: list[dict], title: str | None = None) -> N
         chats.append({
             "id": chat_id,
             "title": title or (auto_title(messages) if messages else "New chat"),
-            "created_at": _now(),
-            "updated_at": _now(),
+            "created_at": _now(), "updated_at": _now(),
             "messages": [
                 {"role": m["role"], "content": m["content"],
                  "display_blocks": _serialize_blocks(m.get("display_blocks", []))}
                 for m in messages
             ],
         })
-    _save_all(chats)
+    _save_all(user, chats)
 
 
-def rename_chat(chat_id: str, title: str) -> None:
-    chats = load_all()
+def rename_chat(chat_id: str, title: str, user: str) -> None:
+    chats = load_all(user)
     for c in chats:
         if c["id"] == chat_id:
             c["title"] = title.strip() or "Untitled chat"
             c["updated_at"] = _now()
-    _save_all(chats)
+    _save_all(user, chats)
 
 
-def delete_chat(chat_id: str) -> None:
-    chats = [c for c in load_all() if c["id"] != chat_id]
-    _save_all(chats)
-
-
-def clear_all() -> None:
-    _save_all([])
-
-
-def export_json() -> str:
-    return json.dumps(load_all(), indent=2)
-
-
-def import_json(raw: str, merge: bool = True) -> int:
-    incoming = json.loads(raw)
-    if not isinstance(incoming, list):
-        raise ValueError("Expected a JSON list of conversations.")
-    existing = load_all() if merge else []
-    existing_ids = {c["id"] for c in existing}
-    added = 0
-    for c in incoming:
-        if "id" not in c:
-            c["id"] = uuid.uuid4().hex[:12]
-        if c["id"] in existing_ids:
-            continue
-        existing.append(c)
-        existing_ids.add(c["id"])
-        added += 1
-    _save_all(existing)
-    return added
+def delete_chat(chat_id: str, user: str) -> None:
+    chats = [c for c in load_all(user) if c["id"] != chat_id]
+    _save_all(user, chats)
 
 
 def auto_title(messages: list[dict]) -> str:
-    """Pick a short title from the first user message."""
     for m in messages:
         if m["role"] == "user":
             txt = re.sub(r"\s+", " ", (m.get("content") or "")).strip()
