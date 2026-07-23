@@ -30,22 +30,22 @@ def _client():
     from google.oauth2 import service_account
 
     scopes = ["https://www.googleapis.com/auth/analytics.readonly"]
-    raw_json = os.environ.get("GA4_SERVICE_ACCOUNT_JSON")
-    file_path = os.environ.get("GA4_SERVICE_ACCOUNT_FILE")
-    if raw_json:
-        credentials = service_account.Credentials.from_service_account_info(
-            json.loads(raw_json), scopes=scopes
-        )
-    elif file_path:
-        # A path to the downloaded service-account .json file (easier on a
-        # server - the JSON can stay multi-line in its own file).
+    file_path = (os.environ.get("GA4_SERVICE_ACCOUNT_FILE") or "").strip()
+    raw_json = (os.environ.get("GA4_SERVICE_ACCOUNT_JSON") or "").strip()
+    # Prefer the file when a path is given - most reliable on a server, and
+    # avoids any half-filled inline-JSON env var.
+    if file_path:
         credentials = service_account.Credentials.from_service_account_file(
             file_path, scopes=scopes
         )
+    elif raw_json:
+        credentials = service_account.Credentials.from_service_account_info(
+            json.loads(raw_json), scopes=scopes
+        )
     else:
         raise RuntimeError(
-            "Set GA4_SERVICE_ACCOUNT_JSON (inline JSON) or "
-            "GA4_SERVICE_ACCOUNT_FILE (path to the .json key file)."
+            "Set GA4_SERVICE_ACCOUNT_FILE (path to the .json key file) or "
+            "GA4_SERVICE_ACCOUNT_JSON (inline JSON)."
         )
     return BetaAnalyticsDataClient(credentials=credentials)
 
