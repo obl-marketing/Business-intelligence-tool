@@ -186,7 +186,28 @@ def manage_users_ui() -> None:
                 st.success(f"✅ {e} can now sign in with the password you set.")
 
         roster = user_store.roster()
+
+        # Reset any user's password to a value you choose.
         if roster:
+            st.divider()
+            st.markdown("**Reset a user's password**")
+            st.caption("Set a new password for someone (e.g. if they forgot theirs). "
+                       "Passwords are stored securely and can't be displayed, but you'll "
+                       "know this one because you're setting it.")
+            with st.form("reset_pw", clear_on_submit=True):
+                target = st.selectbox("User", roster)
+                reset_pw = st.text_input("New password for this user", type="password")
+                do_reset = st.form_submit_button("Reset password")
+            if do_reset:
+                if len(reset_pw) < 4:
+                    st.error("Password must be at least 4 characters.")
+                else:
+                    user_store.set_password(target, reset_pw)
+                    st.success(f"✅ Password reset for {target}. Share it with them; "
+                               "they can change it after signing in.")
+
+        if roster:
+            st.divider()
             st.markdown("**Current users**")
             for email in roster:
                 c1, c2 = st.columns([4, 1])
