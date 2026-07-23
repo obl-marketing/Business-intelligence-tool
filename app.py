@@ -283,17 +283,25 @@ if page == "Training":
         "meanings, and learnings. Add screenshots and the AI can see them too."
     )
 
+    _kb_dir = os.environ.get("KB_DIR", "knowledge")
+    _data_external = os.path.isabs(_kb_dir) and not os.path.abspath(_kb_dir).startswith(os.getcwd())
     if _PERSISTENT:
         st.success(
-            f"✅ Persistent storage active — {persistent_store.storage_label()}. "
-            "Entries survive reboots.",
+            f"✅ Backed up to {persistent_store.storage_label()}. "
+            "Entries survive reboots and app updates.",
+            icon="💾",
+        )
+    elif _data_external:
+        st.success(
+            f"✅ Stored on this server at `{_kb_dir}` — persists across reboots and "
+            "app updates. Use **Export** below for an extra backup any time.",
             icon="💾",
         )
     else:
         st.warning(
-            "⚠️ Local-disk storage only — entries are wiped when the app reboots. "
-            "Add `GITHUB_TOKEN`, `GITHUB_REPO`, and `GITHUB_BRANCH` to your Streamlit "
-            "secrets to persist to GitHub. Until then, use **Export** below to back up.",
+            "⚠️ Training data is stored inside the app folder, which a code update can "
+            "overwrite. Ask your admin to set `KB_DIR` and `CHATS_DIR` to a folder "
+            "outside the app (or enable GitHub backup). Use **Export** below to back up.",
             icon="💾",
         )
 
