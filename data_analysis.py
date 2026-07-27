@@ -15,11 +15,14 @@ import io
 import contextlib
 import re
 
-# Cap the number of rows we echo back in a result so a huge table can't
-# blow up the context. The COMPUTATION still runs over every row; only the
-# textual preview of the result is trimmed.
+# Cap the number of rows we echo back to the MODEL so a huge table can't
+# blow up the context. The COMPUTATION still runs over every row, and the
+# downloadable export (see EXPORT_MAX_ROWS) still contains every row - only
+# the textual preview the model reads is trimmed.
 MAX_RESULT_ROWS = 200
 MAX_RESULT_CHARS = 12000
+# The user-downloadable export keeps the FULL result up to this many rows.
+EXPORT_MAX_ROWS = 50000
 
 
 # ---------------------------------------------------------------
@@ -120,11 +123,13 @@ _SAFE_BUILTINS = {
 }
 
 
-def run_analysis(code: str, datasets: list[dict]) -> str:
-    """Execute the model's pandas `code` against the loaded DataFrames and
-    return a text result. The model should assign its answer to `result`
-    (DataFrame / Series / scalar / dict / list); print() output is also
-    captured. Errors are returned as text so the agent can self-correct.
+def run_analysis(code: str, datasets: list[dict]) -> tuple[str, dict | None]:
+    """Execute the model's pandas `code` against the loaded DataFrames.
+
+    Returns (result_json_for_model, export_or_None). The model reads the JSON
+    (a trimmed preview). `export`, when the result is a table, carries the FULL
+    result as CSV so the UI can offer CSV/Excel downloads - this is NOT sent to
+    the model, so exporting a big table costs no extra tokens.
     """
     import json
     import pandas as pd
@@ -134,16 +139,16 @@ def run_analysis(code: str, datasets: list[dict]) -> str:
         return json.dumps({
             "error": "No spreadsheet/CSV data has been uploaded in this chat. "
                      "Ask the user to attach an Excel or CSV file first."
-        })
+        }), None
     if not code or not code.strip():
-        return json.dumps({"error": "No code provided."})
+        return json.dumps({"error": "No code provided."}), None
     blocked = _BLOCKED.search(code)
     if blocked:
         return json.dumps({
             "error": f"Blocked operation: '{blocked.group(0)}'. The data is already "
                      "loaded as DataFrames (df1, df2, ...); don't import, read files, "
                      "or write files - just use pandas on the provided DataFrames."
-        })
+        }), None
 
     namespace: dict = {"pd": pd, "np": np, "__builtins__": _SAFE_BUILTINS}
     for d in datasets:
@@ -160,11 +165,12 @@ def run_analysis(code: str, datasets: list[dict]) -> str:
             "printed_before_error": printed[:2000] if printed else None,
             "hint": "Fix the code and call analyze_data again. Remember the DataFrames "
                     "are df1, df2, ...; assign your answer to `result`.",
-        })
+        }), None
 
     printed = stdout.getvalue().strip()
     result = namespace.get("result", None)
     rendered, meta = _render_result(result, pd)
+    export = _build_export(result, pd)
 
     payload: dict = {}
     if rendered is not None:
@@ -173,10 +179,41 @@ def run_analysis(code: str, datasets: list[dict]) -> str:
         payload.update(meta)
     if printed:
         payload["stdout"] = printed[:MAX_RESULT_CHARS]
+    if export:
+        payload["downloadable"] = (
+            f"The full {export['rows']:,}-row result is offered to the user as a "
+            "CSV/Excel download below your message."
+        )
     if not payload:
         payload["note"] = ("Code ran but produced no output. Assign your answer to a "
                            "variable named `result`, or use print().")
-    return json.dumps(payload, default=str)
+    return json.dumps(payload, default=str), export
+
+
+def _build_export(result, pd) -> dict | None:
+    """Turn a DataFrame/Series `result` into a CSV export payload (full rows,
+    capped at EXPORT_MAX_ROWS). Returns None for non-tabular results."""
+    if isinstance(result, pd.Series):
+        result = result.to_frame()
+    if not isinstance(result, pd.DataFrame) or result.empty:
+        return None
+    full_rows = int(result.shape[0])
+    df = result.head(EXPORT_MAX_ROWS)
+    # Promote a meaningful index (e.g. group-by keys) into real columns so the
+    # exported CSV is flat and self-describing; drop a plain RangeIndex.
+    if df.index.name is not None or df.index.nlevels > 1:
+        df = df.reset_index()
+    try:
+        csv = df.to_csv(index=False)
+    except Exception:
+        return None
+    return {
+        "filename": "stars_analysis",
+        "csv": csv,
+        "rows": full_rows,
+        "cols": int(result.shape[1]),
+        "truncated": full_rows > EXPORT_MAX_ROWS,
+    }
 
 
 def _render_result(result, pd) -> tuple[object, dict]:

@@ -35,6 +35,68 @@ def _render_chart(spec: dict) -> None:
         st.warning(f"Could not render chart: {e}")
 
 
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _df_download_buttons(df, seed: str, filename: str = "stars_analysis") -> None:
+    """Render CSV + Excel download buttons for a DataFrame."""
+    if df is None or getattr(df, "empty", True):
+        return
+    import io
+    try:
+        csv_bytes = df.to_csv(index=False).encode("utf-8")
+    except Exception:
+        return
+    xlsx_bytes = None
+    try:
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as xw:
+            df.to_excel(xw, index=False, sheet_name="Analysis")
+        xlsx_bytes = buf.getvalue()
+    except Exception:
+        xlsx_bytes = None
+    cols = st.columns(2)
+    with cols[0]:
+        st.download_button("⬇️ CSV", data=csv_bytes, file_name=f"{filename}.csv",
+                           mime="text/csv", key=f"csv_{seed}", use_container_width=True)
+    if xlsx_bytes is not None:
+        with cols[1]:
+            st.download_button("⬇️ Excel", data=xlsx_bytes, file_name=f"{filename}.xlsx",
+                               mime=_XLSX_MIME, key=f"xlsx_{seed}", use_container_width=True)
+
+
+def _table_from_tool_output(output: str):
+    """Best-effort: pull a tabular structure out of a tool-result JSON string so
+    GA4/ads query results become downloadable. Returns a DataFrame or None."""
+    try:
+        obj = json.loads(output)
+    except Exception:
+        return None
+    rows = None
+    if isinstance(obj, list):
+        rows = obj
+    elif isinstance(obj, dict):
+        for k in ("rows", "funnel", "data", "keywords", "creatives", "campaigns", "matched_pages"):
+            v = obj.get(k)
+            if isinstance(v, list) and v and isinstance(v[0], dict):
+                rows = v
+                break
+    if not rows or not isinstance(rows[0], dict):
+        return None
+    try:
+        return pd.DataFrame(rows)
+    except Exception:
+        return None
+
+
+def _df_from_csv(csv_text: str):
+    import io
+    try:
+        return pd.read_csv(io.StringIO(csv_text))
+    except Exception:
+        return None
+
+
 def _get_secret(key: str, default: str = "") -> str:
     """Read from Streamlit secrets (cloud) or env vars (local), whichever has it."""
     try:
@@ -445,8 +507,9 @@ if "uploader_key" not in st.session_state:
 
 
 # ---------- Render history ----------
-def _render_blocks(blocks: list[dict]) -> None:
-    for b in blocks:
+def _render_blocks(blocks: list[dict], seed: str = "live") -> None:
+    for bi, b in enumerate(blocks):
+        bseed = f"{seed}_{bi}"
         if b["kind"] == "text":
             st.markdown(b["content"])
         elif b["kind"] == "chart":
@@ -457,13 +520,22 @@ def _render_blocks(blocks: list[dict]) -> None:
                     st.json(json.loads(b["output"]))
                 except Exception:
                     st.code(b["output"])
+                _df_download_buttons(_table_from_tool_output(b["output"]), bseed,
+                                     filename=f"{b['name']}_result")
+        elif b["kind"] == "export":
+            n, m = b.get("rows", 0), b.get("cols", 0)
+            note = "  (first 50,000 rows)" if b.get("truncated") else ""
+            st.caption(f"⬇️ Download this result — {n:,} rows × {m} columns{note}")
+            _df_download_buttons(_df_from_csv(b.get("csv", "")), bseed,
+                                 filename=b.get("filename", "stars_analysis"))
         elif b["kind"] == "files":
             st.caption("📎 Attached: " + ", ".join(b.get("names", [])))
 
 
-for msg in st.session_state["messages"]:
+for _mi, msg in enumerate(st.session_state["messages"]):
     with st.chat_message(msg["role"]):
-        _render_blocks(msg.get("display_blocks", [{"kind": "text", "content": msg["content"]}]))
+        _render_blocks(msg.get("display_blocks", [{"kind": "text", "content": msg["content"]}]),
+                       seed=f"m{_mi}")
 
 
 # ---------- Handle input ----------
@@ -607,6 +679,20 @@ if prompt:
                                         st.code(event["output"])
                                 placeholder.update(label=f"Evidence: `{event['name']}`", state="complete")
                             break
+                    text_area = st.empty()
+                elif etype == "export":
+                    # Full computed table available for download (rendered after rerun
+                    # via _render_blocks; show a live confirmation here).
+                    exp = event["export"]
+                    display_blocks.append({
+                        "kind": "export",
+                        "csv": exp.get("csv", ""),
+                        "rows": exp.get("rows", 0),
+                        "cols": exp.get("cols", 0),
+                        "truncated": exp.get("truncated", False),
+                        "filename": exp.get("filename", "stars_analysis"),
+                    })
+                    st.caption(f"📥 Result ready to download ({exp.get('rows', 0):,} rows).")
                     text_area = st.empty()
                 elif etype == "done":
                     pass

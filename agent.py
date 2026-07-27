@@ -101,8 +101,8 @@ ANALYZE_TOOL = {
 ALL_TOOLS = TOOL_SCHEMAS + [CHART_TOOL, ANALYZE_TOOL]
 
 
-def _execute_tool(name: str, args: dict, datasets: list | None = None) -> tuple[str, dict | None]:
-    """Run a tool. Returns (result_json, chart_spec_or_None)."""
+def _execute_tool(name: str, args: dict, datasets: list | None = None) -> tuple[str, dict | None, dict | None]:
+    """Run a tool. Returns (result_json, chart_spec_or_None, export_or_None)."""
     if name == "render_chart":
         # Validate minimally; UI does the rendering
         ok = (
@@ -111,12 +111,13 @@ def _execute_tool(name: str, args: dict, datasets: list | None = None) -> tuple[
             and all(isinstance(s, dict) and "values" in s for s in args["series"])
         )
         if not ok:
-            return json.dumps({"error": "Invalid chart spec: need x[] and series[] with values"}), None
-        return json.dumps({"status": "chart rendered to user"}), args
+            return json.dumps({"error": "Invalid chart spec: need x[] and series[] with values"}), None, None
+        return json.dumps({"status": "chart rendered to user"}), args, None
     if name == "analyze_data":
         import data_analysis
-        return data_analysis.run_analysis(args.get("code", ""), datasets or []), None
-    return run_tool(name, args), None
+        result_json, export = data_analysis.run_analysis(args.get("code", ""), datasets or [])
+        return result_json, None, export
+    return run_tool(name, args), None, None
 
 
 def _data_coverage_note() -> str:
@@ -457,11 +458,13 @@ def _chat_anthropic(messages, model, api_key, attachments=None, datasets=None) -
         for block in response.content:
             if block.type != "tool_use":
                 continue
-            result, chart_spec = _execute_tool(block.name, block.input, datasets)
+            result, chart_spec, export = _execute_tool(block.name, block.input, datasets)
             if chart_spec is not None:
                 yield {"type": "chart", "spec": chart_spec}
             else:
                 yield {"type": "tool_result", "name": block.name, "output": result}
+                if export is not None:
+                    yield {"type": "export", "name": block.name, "export": export}
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": block.id,
@@ -575,11 +578,13 @@ def _chat_gemini(messages, model, api_key, attachments=None, datasets=None) -> I
 
         response_parts = []
         for name, args in tool_calls:
-            result, chart_spec = _execute_tool(name, args, datasets)
+            result, chart_spec, export = _execute_tool(name, args, datasets)
             if chart_spec is not None:
                 yield {"type": "chart", "spec": chart_spec}
             else:
                 yield {"type": "tool_result", "name": name, "output": result}
+                if export is not None:
+                    yield {"type": "export", "name": name, "export": export}
             response_parts.append({
                 "function_response": {
                     "name": name,
