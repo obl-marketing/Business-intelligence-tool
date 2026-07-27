@@ -36,6 +36,10 @@ def _render_chart(spec: dict) -> None:
 
 
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# Storage-safety cap for a spreadsheet attached in Training (kept in the shared,
+# GitHub-backed knowledge base). NOT an analysis limit - files under this are
+# analysed in full, every row.
+_MAX_TRAINING_FILE_BYTES = 40 * 1024 * 1024  # 40 MB
 
 
 def _df_download_buttons(df, seed: str, filename: str = "stars_analysis") -> None:
@@ -403,35 +407,75 @@ if page == "Training":
             document = st.file_uploader(
                 "Document (Excel / CSV / PDF / Word / text)",
                 type=["xlsx", "xls", "csv", "pdf", "docx", "txt", "md"],
-                help="Text is extracted and becomes the AI's knowledge. Great for price "
-                     "lists, product catalogs, past reports, SOPs. Old .doc: save as .docx first.",
+                help="Excel/CSV are stored as FULL data (no row limit) and analysed "
+                     "exactly by the AI for every user, in every future chat. PDF/Word/"
+                     "text have their text extracted as knowledge. Old .doc: save as "
+                     ".docx first.",
             )
         submitted = st.form_submit_button("Add to knowledge base", type="primary")
         if submitted:
-            doc_text = ""
             doc_note = ""
+            entry_datasets: list[dict] = []
             if document is not None:
-                with st.spinner(f"Reading {document.name}..."):
-                    doc_text, kind = doc_extract.extract_text(document.name, document.read())
-                if not doc_text:
-                    st.error(f"Couldn't read {document.name}. Supported: .xlsx .xls .csv "
-                             ".pdf .docx .txt .md")
-                    st.stop()
-                doc_note = f"\n\n[Extracted from uploaded file: {document.name}]\n{doc_text}"
+                ext = document.name.rsplit(".", 1)[-1].lower() if "." in document.name else ""
+                raw = document.read()
+                if ext in ("xlsx", "xls", "csv"):
+                    # Spreadsheets are stored as FULL data (no character limit) and
+                    # loaded into the analysis engine - every row, for every user.
+                    if len(raw) > _MAX_TRAINING_FILE_BYTES:
+                        st.error(
+                            f"{document.name} is {len(raw)/1e6:.0f} MB. To keep the shared "
+                            f"knowledge base loadable, attached data files are capped at "
+                            f"{_MAX_TRAINING_FILE_BYTES//10**6} MB (this is a storage limit, "
+                            "not an analysis limit - files under it are analysed in full). "
+                            "Split the file or upload a focused subset.")
+                        st.stop()
+                    import data_analysis
+                    with st.spinner(f"Loading {document.name}..."):
+                        built = data_analysis.build_dataframes(document.name, raw, 0)
+                    if not built:
+                        st.error(f"Couldn't read any tables from {document.name}.")
+                        st.stop()
+                    for b in built:
+                        entry_datasets.append({
+                            "name": b["label"],
+                            "csv": b["df"].to_csv(index=False),
+                            "rows": b["rows"],
+                            "cols": b["cols"],
+                        })
+                    total_rows = sum(b["rows"] for b in built)
+                    doc_note = (f"\n\n[Attached dataset: {document.name} — "
+                                f"{total_rows:,} rows across {len(built)} table(s), "
+                                "fully available for analysis.]")
+                else:
+                    # PDF / Word / text: extract readable text into the description.
+                    with st.spinner(f"Reading {document.name}..."):
+                        doc_text, kind = doc_extract.extract_text(document.name, raw)
+                    if not doc_text:
+                        st.error(f"Couldn't read {document.name}. Supported: .xlsx .xls .csv "
+                                 ".pdf .docx .txt .md")
+                        st.stop()
+                    doc_note = f"\n\n[Extracted from uploaded file: {document.name}]\n{doc_text}"
 
             final_title = title.strip() or (document.name if document else "")
             final_description = (description.strip() + doc_note).strip()
 
             if not final_title:
                 st.error("Please give it a title (or upload a document to use its name).")
-            elif not final_description:
+            elif not final_description and not entry_datasets:
                 st.error("Add a description or upload a document.")
             else:
                 img_bytes = screenshot.read() if screenshot else None
                 img_mime = screenshot.type if screenshot else None
                 knowledge_base.add_entry(category, final_title, final_description,
-                                         img_bytes, img_mime)
-                extra = f" (read {document.name})" if document else ""
+                                         img_bytes, img_mime, datasets=entry_datasets)
+                if entry_datasets:
+                    extra = (f" — dataset loaded ({sum(d['rows'] for d in entry_datasets):,} "
+                             "rows, all analysable)")
+                elif document:
+                    extra = f" (read {document.name})"
+                else:
+                    extra = ""
                 st.success(f"Added '{final_title}' to {category}{extra}.")
                 st.rerun()
 
@@ -453,6 +497,10 @@ if page == "Training":
             for e in cat_items:
                 with st.expander(f"{e['title']}", expanded=False):
                     st.markdown(e["description"])
+                    for _ds in e.get("datasets", []) or []:
+                        st.caption(f"📊 Dataset: **{_ds.get('name','data')}** — "
+                                   f"{_ds.get('rows',0):,} rows × {_ds.get('cols',0)} cols "
+                                   "(fully analysable, no row limit)")
                     if e.get("image_b64"):
                         import base64 as _b64
                         st.image(_b64.b64decode(e["image_b64"]), use_container_width=True)
@@ -501,9 +549,6 @@ if "active_chat_id" not in st.session_state:
 # user starts or switches chats (see sidebar).
 if "chat_datasets" not in st.session_state:
     st.session_state["chat_datasets"] = []
-# Bumped to reset the file uploader after a message is sent.
-if "uploader_key" not in st.session_state:
-    st.session_state["uploader_key"] = 0
 
 
 # ---------- Render history ----------
@@ -539,28 +584,48 @@ for _mi, msg in enumerate(st.session_state["messages"]):
 
 
 # ---------- Handle input ----------
-# File attachments for the next message. Screenshots + PDFs go to the model
-# natively; Excel/CSV become pandas DataFrames the agent can compute over.
+# Attachment types. Screenshots + PDFs go to the model natively; Excel/CSV
+# become pandas DataFrames the agent computes over exactly.
 _IMG_EXT = ("png", "jpg", "jpeg", "webp", "gif")
 _TABLE_EXT = ("xlsx", "xls", "csv")
 _DOC_EXT = ("docx", "txt", "md")
 
-chat_uploads = st.file_uploader(
-    "📎 Attach screenshots, Excel, CSV or PDF for analysis",
-    type=list(_IMG_EXT) + ["pdf"] + list(_TABLE_EXT) + list(_DOC_EXT),
-    accept_multiple_files=True,
-    key=f"chat_files_{st.session_state['uploader_key']}",
-    help="Excel/CSV are analysed row-by-row with real pandas (no guessing). "
-         "Screenshots and PDFs are read directly by the AI.",
-)
-if st.session_state["chat_datasets"]:
-    _loaded = ", ".join(f"`{d['var']}` ({d['label']}, {d['rows']:,}×{d['cols']})"
-                        for d in st.session_state["chat_datasets"])
-    st.caption(f"📊 Data loaded this chat: {_loaded}")
 
-prompt = st.chat_input("Ask about your analytics...")
+# Datasets attached in Training are shared + persistent, so every chat can
+# analyse them. Cache the parsed DataFrames; re-parse only when Training changes.
+@st.cache_data(show_spinner=False)
+def _training_datasets_cached(sig):
+    return knowledge_base.training_dataframes()
+
+
+_training_datasets = _training_datasets_cached(knowledge_base.training_dataset_signature())
+
+if _training_datasets or st.session_state["chat_datasets"]:
+    _bits = [f"{d['label']} ({d['rows']:,}×{d['cols']})"
+             for d in _training_datasets + st.session_state["chat_datasets"]]
+    st.caption("📊 Data available to analyse: " + "  ·  ".join(_bits))
+
+# The 📎 attach button lives INSIDE the chat bar, right next to the text field.
+_user_input = st.chat_input(
+    "Ask about your analytics, or attach a file...",
+    accept_file="multiple",
+    file_type=list(_IMG_EXT) + ["pdf"] + list(_TABLE_EXT) + list(_DOC_EXT),
+)
+prompt = None
+chat_uploads = []
+if _user_input is not None:
+    if isinstance(_user_input, str):
+        prompt = _user_input
+    else:  # ChatInputValue: has .text and .files (attribute or dict access)
+        prompt = (_user_input.get("text") if isinstance(_user_input, dict)
+                  else getattr(_user_input, "text", None))
+        _files = (_user_input.get("files") if isinstance(_user_input, dict)
+                  else getattr(_user_input, "files", None))
+        chat_uploads = _files or []
 if "pending_input" in st.session_state:
     prompt = st.session_state.pop("pending_input")
+if not prompt and chat_uploads:
+    prompt = "Please analyse the attached file(s) in detail."
 
 if prompt:
     if not api_key:
@@ -571,7 +636,6 @@ if prompt:
     attachments: list[dict] = []          # native image/pdf parts for the model
     attached_names: list[str] = []
     doc_texts: list[str] = []             # extracted text from docx/txt/md
-    new_dataset_labels: list[str] = []
     for uf in (chat_uploads or []):
         ext = uf.name.rsplit(".", 1)[-1].lower() if "." in uf.name else ""
         raw = uf.read()
@@ -588,7 +652,6 @@ if prompt:
                 built = data_analysis.build_dataframes(uf.name, raw, start)
                 if built:
                     st.session_state["chat_datasets"].extend(built)
-                    new_dataset_labels += [f"{b['var']} = {b['label']}" for b in built]
                 else:
                     st.warning(f"Couldn't read any tables from {uf.name}.")
             elif ext in _DOC_EXT:
@@ -598,8 +661,11 @@ if prompt:
         except Exception as e:
             st.error(f"Failed to process {uf.name}: {e}")
 
-    # The full set of DataFrames uploaded so far in this chat (for analyze_data)
-    datasets = st.session_state["chat_datasets"]
+    # All DataFrames the agent can analyse: Training datasets (shared/persistent)
+    # first, then this chat's uploads - renumbered df1..dfN so the model sees one
+    # clean namespace.
+    _combined = _training_datasets + st.session_state["chat_datasets"]
+    datasets = [{**d, "var": f"df{i + 1}"} for i, d in enumerate(_combined)]
 
     # Model-facing prompt: user's text + any extracted doc text
     model_prompt = prompt
@@ -626,8 +692,6 @@ if prompt:
         "content": model_prompt,
         "display_blocks": _user_blocks,
     })
-    # Reset the uploader so files aren't re-attached to the next message.
-    st.session_state["uploader_key"] += 1
 
     # Stream assistant turn
     with st.chat_message("assistant"):
