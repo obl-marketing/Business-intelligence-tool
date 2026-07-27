@@ -224,6 +224,7 @@ with st.sidebar:
     if st.button("+ New chat", use_container_width=True, type="primary"):
         st.session_state["active_chat_id"] = chat_store.new_chat(_USER)
         st.session_state["messages"] = []
+        st.session_state["chat_datasets"] = []
         st.rerun()
 
     _saved_chats = chat_store.list_chats(_USER)
@@ -240,6 +241,7 @@ with st.sidebar:
                         loaded = chat_store.load_chat(c["id"], _USER)
                         st.session_state["active_chat_id"] = c["id"]
                         st.session_state["messages"] = loaded["messages"] if loaded else []
+                        st.session_state["chat_datasets"] = []
                         st.rerun()
             with col_b:
                 if st.button("✕", key=f"del_chat_{c['id']}", help="Delete this chat"):
@@ -247,6 +249,7 @@ with st.sidebar:
                     if c["id"] == _active:
                         st.session_state["active_chat_id"] = None
                         st.session_state["messages"] = []
+                        st.session_state["chat_datasets"] = []
                     st.rerun()
     else:
         st.caption("No saved chats yet. Ask a question to start one.")
@@ -431,6 +434,14 @@ if "messages" not in st.session_state:
     st.session_state["messages"] = []
 if "active_chat_id" not in st.session_state:
     st.session_state["active_chat_id"] = None
+# Spreadsheet/CSV DataFrames uploaded in the current chat, kept alive for the
+# whole session so follow-up questions can keep analysing them. Reset when the
+# user starts or switches chats (see sidebar).
+if "chat_datasets" not in st.session_state:
+    st.session_state["chat_datasets"] = []
+# Bumped to reset the file uploader after a message is sent.
+if "uploader_key" not in st.session_state:
+    st.session_state["uploader_key"] = 0
 
 
 # ---------- Render history ----------
@@ -446,6 +457,8 @@ def _render_blocks(blocks: list[dict]) -> None:
                     st.json(json.loads(b["output"]))
                 except Exception:
                     st.code(b["output"])
+        elif b["kind"] == "files":
+            st.caption("📎 Attached: " + ", ".join(b.get("names", [])))
 
 
 for msg in st.session_state["messages"]:
@@ -454,6 +467,25 @@ for msg in st.session_state["messages"]:
 
 
 # ---------- Handle input ----------
+# File attachments for the next message. Screenshots + PDFs go to the model
+# natively; Excel/CSV become pandas DataFrames the agent can compute over.
+_IMG_EXT = ("png", "jpg", "jpeg", "webp", "gif")
+_TABLE_EXT = ("xlsx", "xls", "csv")
+_DOC_EXT = ("docx", "txt", "md")
+
+chat_uploads = st.file_uploader(
+    "📎 Attach screenshots, Excel, CSV or PDF for analysis",
+    type=list(_IMG_EXT) + ["pdf"] + list(_TABLE_EXT) + list(_DOC_EXT),
+    accept_multiple_files=True,
+    key=f"chat_files_{st.session_state['uploader_key']}",
+    help="Excel/CSV are analysed row-by-row with real pandas (no guessing). "
+         "Screenshots and PDFs are read directly by the AI.",
+)
+if st.session_state["chat_datasets"]:
+    _loaded = ", ".join(f"`{d['var']}` ({d['label']}, {d['rows']:,}×{d['cols']})"
+                        for d in st.session_state["chat_datasets"])
+    st.caption(f"📊 Data loaded this chat: {_loaded}")
+
 prompt = st.chat_input("Ask about your analytics...")
 if "pending_input" in st.session_state:
     prompt = st.session_state.pop("pending_input")
@@ -463,18 +495,67 @@ if prompt:
         st.error(f"Please provide a {provider.title()} API key (sidebar or secrets).")
         st.stop()
 
+    # ----- Process this turn's attachments -----
+    attachments: list[dict] = []          # native image/pdf parts for the model
+    attached_names: list[str] = []
+    doc_texts: list[str] = []             # extracted text from docx/txt/md
+    new_dataset_labels: list[str] = []
+    for uf in (chat_uploads or []):
+        ext = uf.name.rsplit(".", 1)[-1].lower() if "." in uf.name else ""
+        raw = uf.read()
+        attached_names.append(uf.name)
+        try:
+            if ext in _IMG_EXT:
+                attachments.append({"kind": "image", "mime": uf.type or f"image/{ext}",
+                                    "bytes": raw, "name": uf.name})
+            elif ext == "pdf":
+                attachments.append({"kind": "pdf", "bytes": raw, "name": uf.name})
+            elif ext in _TABLE_EXT:
+                import data_analysis
+                start = len(st.session_state["chat_datasets"])
+                built = data_analysis.build_dataframes(uf.name, raw, start)
+                if built:
+                    st.session_state["chat_datasets"].extend(built)
+                    new_dataset_labels += [f"{b['var']} = {b['label']}" for b in built]
+                else:
+                    st.warning(f"Couldn't read any tables from {uf.name}.")
+            elif ext in _DOC_EXT:
+                text, _kind = doc_extract.extract_text(uf.name, raw)
+                if text:
+                    doc_texts.append(f"[Attached document: {uf.name}]\n{text}")
+        except Exception as e:
+            st.error(f"Failed to process {uf.name}: {e}")
+
+    # The full set of DataFrames uploaded so far in this chat (for analyze_data)
+    datasets = st.session_state["chat_datasets"]
+
+    # Model-facing prompt: user's text + any extracted doc text
+    model_prompt = prompt
+    if doc_texts:
+        model_prompt = prompt + "\n\n" + "\n\n".join(doc_texts)
+
     # api_history: just text turns
     api_history = [{"role": m["role"], "content": m["content"]} for m in st.session_state["messages"]]
-    api_history.append({"role": "user", "content": prompt})
+    api_history.append({"role": "user", "content": model_prompt})
 
     # Display + persist user turn
     with st.chat_message("user"):
         st.markdown(prompt)
+        for att in attachments:
+            if att["kind"] == "image":
+                st.image(att["bytes"], width=280)
+        if attached_names:
+            st.caption("📎 Attached: " + ", ".join(attached_names))
+    _user_blocks = [{"kind": "text", "content": prompt}]
+    if attached_names:
+        _user_blocks.append({"kind": "files", "names": attached_names})
     st.session_state["messages"].append({
         "role": "user",
-        "content": prompt,
-        "display_blocks": [{"kind": "text", "content": prompt}],
+        "content": model_prompt,
+        "display_blocks": _user_blocks,
     })
+    # Reset the uploader so files aren't re-attached to the next message.
+    st.session_state["uploader_key"] += 1
 
     # Stream assistant turn
     with st.chat_message("assistant"):
@@ -484,7 +565,8 @@ if prompt:
         tool_status_by_call: dict[int, object] = {}
 
         try:
-            for event in chat(api_history, model=model, api_key=api_key, provider=provider):
+            for event in chat(api_history, model=model, api_key=api_key, provider=provider,
+                              attachments=attachments, datasets=datasets):
                 etype = event["type"]
                 if etype == "text":
                     accumulated_text += event["text"]

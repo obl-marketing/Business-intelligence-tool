@@ -66,10 +66,42 @@ CHART_TOOL = {
     },
 }
 
-ALL_TOOLS = TOOL_SCHEMAS + [CHART_TOOL]
+ANALYZE_TOOL = {
+    "name": "analyze_data",
+    "description": (
+        "Run Python (pandas) over the spreadsheet/CSV files the user attached in THIS "
+        "chat to compute EXACT answers. Use this for ANY calculation, count, comparison, "
+        "VLOOKUP/join (use pandas merge), sort, filter, group-by, pivot (pivot_table), or "
+        "to derive the numbers for a chart from uploaded data. NEVER eyeball the table or "
+        "estimate - always compute here so every single row is included and nothing is "
+        "hallucinated. The attached data is already loaded as DataFrames named df1, df2, "
+        "... (see the dataset summary in the user's message for each one's columns). "
+        "Write pandas code and assign your final answer to a variable named `result` "
+        "(a DataFrame, Series, number, or dict); print() output is also captured. "
+        "pandas is available as `pd` and numpy as `np`. Do not import anything or read/"
+        "write files - the DataFrames are already in memory. If your code errors, read the "
+        "error and call analyze_data again with a fix."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "code": {
+                "type": "string",
+                "description": (
+                    "Python/pandas code operating on df1, df2, ... Assign the answer to "
+                    "`result`. Example: result = df1.groupby('Category')['Sales'].sum()"
+                    ".sort_values(ascending=False)"
+                ),
+            },
+        },
+        "required": ["code"],
+    },
+}
+
+ALL_TOOLS = TOOL_SCHEMAS + [CHART_TOOL, ANALYZE_TOOL]
 
 
-def _execute_tool(name: str, args: dict) -> tuple[str, dict | None]:
+def _execute_tool(name: str, args: dict, datasets: list | None = None) -> tuple[str, dict | None]:
     """Run a tool. Returns (result_json, chart_spec_or_None)."""
     if name == "render_chart":
         # Validate minimally; UI does the rendering
@@ -81,6 +113,9 @@ def _execute_tool(name: str, args: dict) -> tuple[str, dict | None]:
         if not ok:
             return json.dumps({"error": "Invalid chart spec: need x[] and series[] with values"}), None
         return json.dumps({"status": "chart rendered to user"}), args
+    if name == "analyze_data":
+        import data_analysis
+        return data_analysis.run_analysis(args.get("code", ""), datasets or []), None
     return run_tool(name, args), None
 
 
@@ -227,6 +262,42 @@ register (name + scope: Event) and confirm the site is firing the parameter, \
 then say once it's set up and a day of data has flowed, you can answer that \
 question.
 
+# Files the user attaches in chat (screenshots, Excel, CSV, PDF)
+
+The user can attach files to a message. Handle each by its type:
+
+- **Screenshots / images** are given to you directly as images - read them carefully \
+and quote the exact figures/labels you see. Great for a GA4 screen, a dashboard, a \
+chart, an error, a page layout.
+- **PDFs** are given to you directly - read tables, headings and body text from them \
+and cite exact numbers.
+- **Excel / CSV spreadsheets** are loaded for you as pandas DataFrames named `df1`, \
+`df2`, ... A summary of each (source, row/column count, column names, and a 5-row \
+preview) appears in the user's message.
+
+**The absolute rule for uploaded spreadsheet/CSV data: never eyeball, never estimate, \
+never work from the preview.** For ANY number, comparison, count, lookup, sort, filter, \
+pivot, or chart built on that data, call `analyze_data` and let pandas compute it over \
+EVERY row. If the file has 100 rows, your analysis must cover all 100 - the full data \
+is in the DataFrame even though only 5 rows are previewed. State the row count you \
+analysed so the user knows it was complete.
+
+How to use `analyze_data` well:
+- **VLOOKUP / matching across two files** → `pd.merge(df1, df2, on='key', how='left')`.
+- **Sorting** → `df1.sort_values('col', ascending=False)`.
+- **Pivot table** → `df1.pivot_table(index=..., columns=..., values=..., aggfunc='sum')`.
+- **Compare / group** → `df1.groupby('col')['metric'].agg(['sum','mean','count'])`.
+- **Filter** → `df1[df1['col'] > 100]`.
+- Assign the answer to `result`. If code errors, read the error message and retry with \
+a fix - don't give up or fall back to guessing.
+- **Charts from uploaded data**: first compute the aggregated numbers with \
+`analyze_data`, then pass those exact numbers to `render_chart`. Never chart numbers you \
+didn't compute.
+
+If asked to analyse an uploaded file with no clear question, profile it: shape, columns, \
+key totals, notable patterns, and data-quality issues (missing values, duplicates, \
+outliers) - all computed via `analyze_data` - then summarise what stands out.
+
 # How to answer
 
 **Always follow this sequence:**
@@ -280,24 +351,37 @@ def chat(
     model: str | None = None,
     api_key: str | None = None,
     provider: str | None = None,
+    attachments: list[dict] | None = None,
+    datasets: list[dict] | None = None,
 ) -> Iterator[dict]:
-    """Dispatch to the right provider implementation."""
+    """Dispatch to the right provider implementation.
+
+    `attachments` are the current user turn's files as native multimodal parts:
+      {"kind": "image", "mime": str, "bytes": bytes, "name": str}
+      {"kind": "pdf", "bytes": bytes, "name": str}
+    `datasets` are all spreadsheet/CSV DataFrames uploaded in this chat, for the
+    `analyze_data` tool: {"var": "df1", "label": str, "df": DataFrame, ...}.
+    """
     provider = (provider or os.environ.get("LLM_PROVIDER", "anthropic")).lower()
+    attachments = attachments or []
+    datasets = datasets or []
     if provider == "gemini":
-        yield from _chat_gemini(messages, model, api_key)
+        yield from _chat_gemini(messages, model, api_key, attachments, datasets)
     else:
-        yield from _chat_anthropic(messages, model, api_key)
+        yield from _chat_anthropic(messages, model, api_key, attachments, datasets)
 
 
 # ===========================================================
 # Anthropic Claude
 # ===========================================================
 
-def _chat_anthropic(messages, model, api_key) -> Iterator[dict]:
+def _chat_anthropic(messages, model, api_key, attachments=None, datasets=None) -> Iterator[dict]:
     import anthropic
 
     import base64
 
+    attachments = attachments or []
+    datasets = datasets or []
     client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
     model = model or os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
 
@@ -319,6 +403,35 @@ def _chat_anthropic(messages, model, api_key) -> Iterator[dict]:
             })
         blocks.append({"type": "text", "text": working_messages[0]["content"]})
         working_messages[0] = {"role": "user", "content": blocks}
+
+    # Attach THIS turn's uploaded files (images + PDFs) + the spreadsheet summary
+    # to the latest user turn as native multimodal blocks. Prepend them so any
+    # existing blocks (e.g. KB images on the first turn) and the user's text stay.
+    if (attachments or datasets) and working_messages and working_messages[-1]["role"] == "user":
+        last = working_messages[-1]
+        media_blocks = []
+        for att in attachments:
+            if att["kind"] == "image":
+                media_blocks.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": att["mime"],
+                               "data": base64.b64encode(att["bytes"]).decode()},
+                })
+            elif att["kind"] == "pdf":
+                media_blocks.append({
+                    "type": "document",
+                    "source": {"type": "base64", "media_type": "application/pdf",
+                               "data": base64.b64encode(att["bytes"]).decode()},
+                })
+        if datasets:
+            import data_analysis
+            media_blocks.append({"type": "text", "text": data_analysis.dataset_summary(datasets)})
+        existing = last["content"]
+        if isinstance(existing, str):
+            new_content = media_blocks + [{"type": "text", "text": existing}]
+        else:
+            new_content = media_blocks + existing
+        working_messages[-1] = {"role": "user", "content": new_content}
 
     for _ in range(12):
         response = client.messages.create(
@@ -344,7 +457,7 @@ def _chat_anthropic(messages, model, api_key) -> Iterator[dict]:
         for block in response.content:
             if block.type != "tool_use":
                 continue
-            result, chart_spec = _execute_tool(block.name, block.input)
+            result, chart_spec = _execute_tool(block.name, block.input, datasets)
             if chart_spec is not None:
                 yield {"type": "chart", "spec": chart_spec}
             else:
@@ -375,10 +488,12 @@ def _claude_schema_to_gemini(schema: dict) -> dict:
     return schema
 
 
-def _chat_gemini(messages, model, api_key) -> Iterator[dict]:
+def _chat_gemini(messages, model, api_key, attachments=None, datasets=None) -> Iterator[dict]:
     from google import genai
     from google.genai import types as gt
 
+    attachments = attachments or []
+    datasets = datasets or []
     api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         raise RuntimeError("Set GEMINI_API_KEY (or GOOGLE_API_KEY) in your secrets / env.")
@@ -408,6 +523,19 @@ def _chat_gemini(messages, model, api_key) -> Iterator[dict]:
             ref_parts.append({"text": f"[Reference image: {img['category']} - {img['title']}]"})
             ref_parts.append(gt.Part.from_bytes(data=img["bytes"], mime_type=img["mime"]))
         contents[0]["parts"] = ref_parts + contents[0]["parts"]
+
+    # Attach THIS turn's uploaded files (images + PDFs, sent to Gemini natively) and
+    # the spreadsheet summary to the latest user turn.
+    if (attachments or datasets) and contents and contents[-1]["role"] == "user":
+        extra_parts = []
+        for att in attachments:
+            if att["kind"] in ("image", "pdf"):
+                mime = "application/pdf" if att["kind"] == "pdf" else att["mime"]
+                extra_parts.append(gt.Part.from_bytes(data=att["bytes"], mime_type=mime))
+        if datasets:
+            import data_analysis
+            extra_parts.append({"text": data_analysis.dataset_summary(datasets)})
+        contents[-1]["parts"] = extra_parts + contents[-1]["parts"]
 
     config = gt.GenerateContentConfig(
         system_instruction=system_prompt(),
@@ -447,7 +575,7 @@ def _chat_gemini(messages, model, api_key) -> Iterator[dict]:
 
         response_parts = []
         for name, args in tool_calls:
-            result, chart_spec = _execute_tool(name, args)
+            result, chart_spec = _execute_tool(name, args, datasets)
             if chart_spec is not None:
                 yield {"type": "chart", "spec": chart_spec}
             else:
