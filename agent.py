@@ -77,10 +77,12 @@ ANALYZE_TOOL = {
         "hallucinated. The attached data is already loaded as DataFrames named df1, df2, "
         "... (see the dataset summary in the user's message for each one's columns). "
         "Write pandas code and assign your final answer to a variable named `result` "
-        "(a DataFrame, Series, number, or dict); print() output is also captured. "
-        "pandas is available as `pd` and numpy as `np`. Do not import anything or read/"
-        "write files - the DataFrames are already in memory. If your code errors, read the "
-        "error and call analyze_data again with a fix."
+        "(a DataFrame, Series, number, or dict). pandas is available as `pd` and numpy "
+        "as `np`. Do not import anything or read/write files - the DataFrames are already "
+        "in memory. If your code errors, read the error and call analyze_data again. "
+        "IMPORTANT: write the `code` as ONE short single-line statement where possible "
+        "(use ';' to separate steps if needed). Do NOT use triple-quotes, backslashes, or "
+        "line breaks in the code - they get corrupted. Keep it simple and on one line."
     ),
     "input_schema": {
         "type": "object",
@@ -88,9 +90,9 @@ ANALYZE_TOOL = {
             "code": {
                 "type": "string",
                 "description": (
-                    "Python/pandas code operating on df1, df2, ... Assign the answer to "
-                    "`result`. Example: result = df1.groupby('Category')['Sales'].sum()"
-                    ".sort_values(ascending=False)"
+                    "A SINGLE-LINE Python/pandas statement on df1, df2, ... assigning to "
+                    "`result`. No line breaks, no triple-quotes, no backslashes. "
+                    "Example: result = df1.groupby('Category')['Sales'].sum().sort_values(ascending=False)"
                 ),
             },
         },
@@ -434,6 +436,7 @@ def _chat_anthropic(messages, model, api_key, attachments=None, datasets=None) -
             new_content = media_blocks + existing
         working_messages[-1] = {"role": "user", "content": new_content}
 
+    yielded_text = False
     for _ in range(12):
         response = client.messages.create(
             model=model,
@@ -446,6 +449,7 @@ def _chat_anthropic(messages, model, api_key, attachments=None, datasets=None) -
         for block in response.content:
             if block.type == "text" and block.text:
                 yield {"type": "text", "text": block.text}
+                yielded_text = True
             elif block.type == "tool_use":
                 yield {"type": "tool_use", "name": block.name, "input": block.input}
 
@@ -472,6 +476,11 @@ def _chat_anthropic(messages, model, api_key, attachments=None, datasets=None) -
             })
         working_messages.append({"role": "user", "content": tool_results})
 
+    if not yielded_text:
+        yield {"type": "text", "text": (
+            "I wasn't able to produce an answer for that. Try asking for a specific "
+            "metric or column from your data and I'll compute it directly."
+        )}
     yield {"type": "done"}
 
 
@@ -545,6 +554,8 @@ def _chat_gemini(messages, model, api_key, attachments=None, datasets=None) -> I
         tools=tools_config,
     )
 
+    yielded_text = False
+    malformed_retries = 0
     for _ in range(12):
         response = client.models.generate_content(
             model=model,
@@ -553,14 +564,38 @@ def _chat_gemini(messages, model, api_key, attachments=None, datasets=None) -> I
         )
 
         candidate = response.candidates[0] if response.candidates else None
-        if not candidate or not candidate.content or not candidate.content.parts:
+        parts = (candidate.content.parts
+                 if candidate and candidate.content and candidate.content.parts else None)
+
+        if not parts:
+            # Gemini can return no usable parts - most often a MALFORMED_FUNCTION_CALL
+            # (it mangled a tool's arguments, e.g. multi-line analyze_data code) or a
+            # safety/length stop. Surface it and retry once by nudging the model.
+            reason = getattr(candidate, "finish_reason", None) if candidate else None
+            reason = getattr(reason, "name", str(reason)) if reason is not None else "UNKNOWN"
+            if reason == "MALFORMED_FUNCTION_CALL" and malformed_retries < 2:
+                malformed_retries += 1
+                contents.append({"role": "user", "parts": [{"text": (
+                    "Your previous tool call could not be parsed. If you were calling "
+                    "analyze_data, keep the `code` as a SINGLE simple statement (e.g. "
+                    "assign to `result`), avoid backslashes and triple-quotes, and try "
+                    "again. Otherwise, just answer in plain text."
+                )}]})
+                continue
+            if not yielded_text:
+                yield {"type": "text", "text": (
+                    "I couldn't complete that with the file this time "
+                    f"(model stop reason: `{reason}`). Please try rephrasing, or ask "
+                    "the specific number/column you need and I'll compute it directly."
+                )}
             break
 
         model_parts = []
         tool_calls = []
-        for part in candidate.content.parts:
+        for part in parts:
             if getattr(part, "text", None):
                 yield {"type": "text", "text": part.text}
+                yielded_text = True
                 model_parts.append({"text": part.text})
             fc = getattr(part, "function_call", None)
             if fc:
@@ -593,4 +628,9 @@ def _chat_gemini(messages, model, api_key, attachments=None, datasets=None) -> I
             })
         contents.append({"role": "user", "parts": response_parts})
 
+    if not yielded_text:
+        yield {"type": "text", "text": (
+            "I wasn't able to produce an answer for that. Try asking for a specific "
+            "metric or column from your data and I'll compute it directly."
+        )}
     yield {"type": "done"}
