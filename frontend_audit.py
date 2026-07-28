@@ -128,6 +128,15 @@ def _render_mode() -> str:
     return (os.environ.get("AUDIT_JS_RENDER", "auto") or "auto").strip().lower()
 
 
+def _allowlist_headers() -> dict:
+    """If AUDIT_ALLOWLIST_TOKEN is set, every audit request carries
+    `X-STARS-Audit: <token>`. Allowlist that header at your WAF to let the
+    audit through without touching real-visitor traffic. Works regardless of
+    the server's IP (useful when the egress IP isn't static)."""
+    tok = (os.environ.get("AUDIT_ALLOWLIST_TOKEN") or "").strip()
+    return {"X-STARS-Audit": tok} if tok else {}
+
+
 def _render_settle_ms() -> int:
     """How long to wait after load for client-side JS to inject popups / lazy
     content. Configurable via AUDIT_RENDER_WAIT_MS (raise it to catch delayed
@@ -170,7 +179,8 @@ def _render_html_playwright(url: str, timeout_ms: int = 30000) -> dict:
                 viewport={"width": 1366, "height": _VIEWPORT_H},
                 locale="en-US",
                 timezone_id="Asia/Kolkata",
-                extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+                extra_http_headers={"Accept-Language": "en-US,en;q=0.9",
+                                    **_allowlist_headers()},
                 # Auditing the user's own public pages; don't let an incomplete
                 # cert chain (which real browsers tolerate via AIA) block the read.
                 ignore_https_errors=True,
@@ -287,6 +297,7 @@ def _fetch(url: str) -> dict:
         "Sec-Fetch-Site": "none",
         "Sec-Fetch-User": "?1",
         "Cache-Control": "max-age=0",
+        **_allowlist_headers(),
     }
     response = None
     tls_note = None
