@@ -131,15 +131,25 @@ def _render_mode() -> str:
 def _render_html_playwright(url: str, timeout_ms: int = 25000) -> dict:
     """Load the page in headless Chromium so JavaScript runs, and return the
     fully-rendered HTML plus each clickable element's viewport position (for
-    real above-the-fold detection). Raises if Playwright/Chromium isn't set up."""
+    real above-the-fold detection). Raises if Playwright/Chromium isn't set up.
+
+    Set PLAYWRIGHT_CHROMIUM_PATH to use a system-installed Chromium (e.g. one
+    from apt) instead of Playwright's own download - useful when a firewall
+    blocks Playwright's browser CDN.
+    """
     from playwright.sync_api import sync_playwright
+
+    launch_kwargs: dict = {
+        "headless": True,
+        "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+    }
+    exe = (os.environ.get("PLAYWRIGHT_CHROMIUM_PATH") or "").strip()
+    if exe:
+        launch_kwargs["executable_path"] = exe
 
     out: dict = {}
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-        )
+        browser = p.chromium.launch(**launch_kwargs)
         try:
             ctx = browser.new_context(
                 user_agent=_UA,
