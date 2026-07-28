@@ -217,8 +217,13 @@ with st.sidebar:
             "```toml\nSITE_BASE_URL = \"https://www.yoursite.com\"\n```\n"
             "Without it, you'd pass full URLs every time (e.g. *'audit "
             "https://yoursite.com/products/abc'*).\n\n"
-            "**Limitation:** sees server-rendered HTML only. JavaScript-injected "
-            "content (SPA modals, lazy-loaded sections, A/B variants) is not captured."
+            "**JavaScript rendering:** the audit runs the page in a headless Chromium "
+            "browser on your own server (via Playwright), so SPA modals, lazy-loaded "
+            "sections, and dynamic content ARE captured — no third-party tool needed. "
+            "One-time server setup: `pip install playwright && playwright install "
+            "--with-deps chromium`. If the browser isn't installed it automatically "
+            "falls back to static HTML. Control with `AUDIT_JS_RENDER` = auto (default) "
+            "/ on / off."
         )
 
     _ga4_label = (

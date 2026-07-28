@@ -114,12 +114,96 @@ def _text_only(soup: BeautifulSoup) -> str:
     return soup.get_text(" ", strip=True)
 
 
-def audit_page(url_or_path: str) -> dict[str, Any]:
-    url = _resolve_url(url_or_path)
+_UA = ("Mozilla/5.0 (compatible; BIToolAuditBot/1.0; +https://aistudio.google.com)")
+_VIEWPORT_H = 900
+
+
+def _render_mode() -> str:
+    """AUDIT_JS_RENDER: 'auto' (default) tries a headless browser then falls back
+    to static HTML; 'on' forces the browser; 'off' uses static HTML only."""
+    return (os.environ.get("AUDIT_JS_RENDER", "auto") or "auto").strip().lower()
+
+
+def _render_html_playwright(url: str, timeout_ms: int = 25000) -> dict:
+    """Load the page in headless Chromium so JavaScript runs, and return the
+    fully-rendered HTML plus each clickable element's viewport position (for
+    real above-the-fold detection). Raises if Playwright/Chromium isn't set up."""
+    from playwright.sync_api import sync_playwright
+
+    out: dict = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+        )
+        try:
+            ctx = browser.new_context(
+                user_agent=_UA,
+                viewport={"width": 1366, "height": _VIEWPORT_H},
+                locale="en-US",
+            )
+            page = ctx.new_page()
+            resp = page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+            page.wait_for_timeout(1200)  # let lazy/animated content settle
+            out["html"] = page.content()
+            out["status"] = resp.status if resp else None
+            out["final_url"] = page.url
+            try:
+                out["elements"] = page.eval_on_selector_all(
+                    "a, button",
+                    """els => els.map(e => {
+                        const r = e.getBoundingClientRect();
+                        return {
+                            text: (e.innerText || e.getAttribute('aria-label') || '').trim().slice(0,60),
+                            top: Math.round(r.top),
+                            visible: r.width > 0 && r.height > 0 &&
+                                     getComputedStyle(e).visibility !== 'hidden'
+                        };
+                    })""",
+                )
+            except Exception:
+                out["elements"] = None
+            return out
+        finally:
+            browser.close()
+
+
+def _render_in_thread(url: str) -> dict:
+    """Run sync Playwright off the Streamlit thread to avoid any event-loop clash."""
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(_render_html_playwright, url).result(timeout=60)
+
+
+def _fetch(url: str) -> dict:
+    """Fetch page HTML, rendering JavaScript when possible. Returns a dict with
+    html/status/final_url/page_size_kb/elapsed_ms/render_mode (or 'error')."""
+    mode = _render_mode()
     started = time.time()
 
+    if mode in ("auto", "on"):
+        try:
+            r = _render_in_thread(url)
+            html = r.get("html") or ""
+            return {
+                "html": html,
+                "status": r.get("status"),
+                "final_url": r.get("final_url") or url,
+                "page_size_kb": round(len(html.encode("utf-8")) / 1024, 1),
+                "elapsed_ms": int((time.time() - started) * 1000),
+                "render_mode": "javascript (headless Chromium)",
+                "elements": r.get("elements"),
+            }
+        except Exception as e:
+            if mode == "on":
+                return {"error": (
+                    f"JS render failed: {type(e).__name__}: {e}. Install the browser on "
+                    "the server: `pip install playwright && playwright install --with-deps "
+                    "chromium`. Or set AUDIT_JS_RENDER=off to use static HTML.")}
+            # auto: silently fall back to static fetch below
+
     headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; BIToolAuditBot/1.0; +https://aistudio.google.com)",
+        "User-Agent": _UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     }
@@ -127,22 +211,65 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
         with httpx.Client(follow_redirects=True, timeout=15.0, headers=headers) as client:
             response = client.get(url)
     except httpx.HTTPError as e:
-        return {"url": url, "error": f"Fetch failed: {type(e).__name__}: {e}"}
+        return {"error": f"Fetch failed: {type(e).__name__}: {e}"}
+    return {
+        "html": response.text,
+        "status": response.status_code,
+        "final_url": str(response.url),
+        "page_size_kb": round(len(response.content) / 1024, 1),
+        "elapsed_ms": int((time.time() - started) * 1000),
+        "render_mode": "static HTML (no JavaScript)",
+        "elements": None,
+    }
 
-    elapsed_ms = int((time.time() - started) * 1000)
-    page_size_kb = round(len(response.content) / 1024, 1)
-    final_url = str(response.url)
 
-    if response.status_code >= 400:
+def _above_fold_ctas(elements: list | None) -> dict | None:
+    """From the browser's element positions, count CTAs actually visible within
+    the first viewport (real above-the-fold, not a DOM-order guess)."""
+    if not elements:
+        return None
+    above, below = [], 0
+    for el in elements:
+        text = (el.get("text") or "").strip()
+        if not text or not el.get("visible"):
+            continue
+        if not _CTA_VERBS.search(text):
+            continue
+        if 0 <= el.get("top", 99999) < _VIEWPORT_H:
+            if text not in above:
+                above.append(text)
+        else:
+            below += 1
+    return {"above_fold_cta_count": len(above),
+            "above_fold_ctas": above[:15],
+            "below_fold_cta_count": below}
+
+
+def audit_page(url_or_path: str) -> dict[str, Any]:
+    url = _resolve_url(url_or_path)
+
+    fetched = _fetch(url)
+    if fetched.get("error"):
+        return {"url": url, **fetched}
+
+    elapsed_ms = fetched["elapsed_ms"]
+    page_size_kb = fetched["page_size_kb"]
+    final_url = fetched["final_url"]
+    status_code = fetched["status"]
+    render_mode = fetched["render_mode"]
+    above_fold = _above_fold_ctas(fetched.get("elements"))
+
+    if status_code is not None and status_code >= 400:
         return {
             "url": url,
             "final_url": final_url,
-            "status": response.status_code,
-            "error": f"HTTP {response.status_code}",
+            "status": status_code,
+            "error": f"HTTP {status_code}",
             "page_size_kb": page_size_kb,
+            "render_mode": render_mode,
         }
 
-    soup = BeautifulSoup(response.text, "lxml")
+    soup = BeautifulSoup(fetched["html"], "lxml")
 
     # head
     title = (soup.title.get_text(strip=True) if soup.title else "")[:160]
@@ -218,7 +345,8 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
     return {
         "url": url,
         "final_url": final_url,
-        "status": response.status_code,
+        "status": status_code,
+        "render_mode": render_mode,
         "load_time_ms": elapsed_ms,
         "page_size_kb": page_size_kb,
 
@@ -250,6 +378,8 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
         "ctas": {
             "count": len(ctas),
             "first_cta_position_in_dom": first_cta_position,
+            # Real viewport above-the-fold data when JS-rendered; None on static fetch.
+            "above_the_fold": above_fold,
             "list": ctas,
         },
 
@@ -267,9 +397,13 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
         "trust_and_conversion_signals_detected": trust_signals,
 
         "audit_notes": (
-            "This is a server-rendered HTML snapshot. JavaScript-injected content "
-            "(SPA modals, lazy-loaded sections, A/B variants) is not captured. "
-            "Above-the-fold visibility is estimated by first-CTA position in the DOM, "
-            "not by actual viewport rendering."
+            "Fully JavaScript-rendered in a headless Chromium browser: SPA modals, "
+            "lazy-loaded sections, and dynamically-injected content ARE captured, and "
+            "above-the-fold data reflects the real 1366x900 viewport."
+            if render_mode.startswith("javascript") else
+            "Static server-rendered HTML snapshot (JS did not run). JavaScript-injected "
+            "content (SPA modals, lazy-loaded sections, A/B variants) is NOT captured, and "
+            "above-the-fold is estimated by first-CTA DOM position. To capture JS content, "
+            "install the headless browser on the server (see AUDIT_JS_RENDER)."
         ),
     }
