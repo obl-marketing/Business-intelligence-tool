@@ -187,6 +187,7 @@ def _fetch(url: str) -> dict:
     html/status/final_url/page_size_kb/elapsed_ms/render_mode (or 'error')."""
     mode = _render_mode()
     started = time.time()
+    render_note = None
 
     if mode in ("auto", "on"):
         try:
@@ -202,12 +203,18 @@ def _fetch(url: str) -> dict:
                 "elements": r.get("elements"),
             }
         except Exception as e:
+            reason = f"{type(e).__name__}: {e}"
             if mode == "on":
                 return {"error": (
-                    f"JS render failed: {type(e).__name__}: {e}. Install the browser on "
+                    f"JS render failed: {reason}. Install the browser on "
                     "the server: `pip install playwright && playwright install --with-deps "
                     "chromium`. Or set AUDIT_JS_RENDER=off to use static HTML.")}
-            # auto: silently fall back to static fetch below
+            # auto: fall back to static fetch, but record WHY the browser didn't run
+            render_note = (
+                "Headless-browser render was attempted but fell back to static HTML. "
+                f"Reason: {reason[:300]}. Install/repair it with "
+                "`playwright install --with-deps chromium` on the server."
+            )
 
     # Full browser-like header set so a WAF/CDN treats us as a real visitor.
     # (Accept-Encoding is intentionally omitted - httpx sets it to only what it
@@ -247,7 +254,8 @@ def _fetch(url: str) -> dict:
                 continue  # retry with verification disabled
             return {"error": f"Fetch failed: {emsg}"}
     if response is None:
-        return {"error": "Fetch failed: could not connect even after an SSL retry."}
+        return {"error": "Fetch failed: could not connect even after an SSL retry.",
+                "render_note": render_note}
     return {
         "html": response.text,
         "status": response.status_code,
@@ -256,6 +264,7 @@ def _fetch(url: str) -> dict:
         "elapsed_ms": int((time.time() - started) * 1000),
         "render_mode": "static HTML (no JavaScript)",
         "tls_note": tls_note,
+        "render_note": render_note,
         "elements": None,
     }
 
@@ -295,6 +304,7 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
     status_code = fetched["status"]
     render_mode = fetched["render_mode"]
     tls_note = fetched.get("tls_note")
+    render_note = fetched.get("render_note")
     above_fold = _above_fold_ctas(fetched.get("elements"))
 
     if status_code is not None and status_code >= 400:
@@ -305,6 +315,7 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
             "error": f"HTTP {status_code}",
             "page_size_kb": page_size_kb,
             "render_mode": render_mode,
+            "render_note": render_note,
         }
         if status_code in (403, 429) and render_mode.startswith("static"):
             result["hint"] = (
@@ -395,6 +406,7 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
         "status": status_code,
         "render_mode": render_mode,
         "tls_note": tls_note,
+        "render_note": render_note,
         "load_time_ms": elapsed_ms,
         "page_size_kb": page_size_kb,
 
