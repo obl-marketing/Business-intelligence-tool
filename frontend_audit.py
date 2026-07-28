@@ -151,7 +151,11 @@ def _render_html_playwright(url: str, timeout_ms: int = 30000) -> dict:
 
     launch_kwargs: dict = {
         "headless": True,
-        "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+        "args": [
+            "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
+            # Hide the automation flag that basic bot-detection checks for.
+            "--disable-blink-features=AutomationControlled",
+        ],
     }
     exe = (os.environ.get("PLAYWRIGHT_CHROMIUM_PATH") or "").strip()
     if exe:
@@ -165,9 +169,19 @@ def _render_html_playwright(url: str, timeout_ms: int = 30000) -> dict:
                 user_agent=_UA,
                 viewport={"width": 1366, "height": _VIEWPORT_H},
                 locale="en-US",
+                timezone_id="Asia/Kolkata",
+                extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
                 # Auditing the user's own public pages; don't let an incomplete
                 # cert chain (which real browsers tolerate via AIA) block the read.
                 ignore_https_errors=True,
+            )
+            # Stealth: mask the headless/automation fingerprints that WAF bot
+            # detection looks for, so auditing our own site isn't blocked.
+            ctx.add_init_script(
+                "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+                "Object.defineProperty(navigator,'languages',{get:()=>['en-US','en']});"
+                "Object.defineProperty(navigator,'plugins',{get:()=>[1,2,3,4,5]});"
+                "window.chrome={runtime:{}};"
             )
             page = ctx.new_page()
             # 'domcontentloaded' is reliable; 'networkidle' never fires on sites
@@ -221,10 +235,11 @@ def _fetch(url: str) -> dict:
     render_note = None
 
     if mode in ("auto", "on"):
+        js_result = None
         try:
             r = _render_in_thread(url)
             html = r.get("html") or ""
-            return {
+            js_result = {
                 "html": html,
                 "status": r.get("status"),
                 "final_url": r.get("final_url") or url,
@@ -246,6 +261,17 @@ def _fetch(url: str) -> dict:
                 f"Reason: {reason[:300]}. Install/repair it with "
                 "`playwright install --with-deps chromium` on the server."
             )
+        if js_result is not None:
+            blocked = js_result["status"] and js_result["status"] >= 400
+            if mode == "auto" and blocked:
+                # The site's WAF blocked the automated browser (bot detection),
+                # but the plain static request often gets through - retry with it.
+                render_note = (
+                    f"The headless browser was blocked (HTTP {js_result['status']}), "
+                    "likely bot detection; retried with a static fetch. Note: JS-injected "
+                    "content (popups, lazy sections) may be missing as a result.")
+            else:
+                return js_result
 
     # Full browser-like header set so a WAF/CDN treats us as a real visitor.
     # (Accept-Encoding is intentionally omitted - httpx sets it to only what it
