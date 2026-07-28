@@ -141,6 +141,9 @@ def _render_html_playwright(url: str, timeout_ms: int = 25000) -> dict:
                 user_agent=_UA,
                 viewport={"width": 1366, "height": _VIEWPORT_H},
                 locale="en-US",
+                # Auditing the user's own public pages; don't let an incomplete
+                # cert chain (which real browsers tolerate via AIA) block the read.
+                ignore_https_errors=True,
             )
             page = ctx.new_page()
             resp = page.goto(url, wait_until="networkidle", timeout=timeout_ms)
@@ -207,11 +210,30 @@ def _fetch(url: str) -> dict:
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     }
-    try:
-        with httpx.Client(follow_redirects=True, timeout=15.0, headers=headers) as client:
-            response = client.get(url)
-    except httpx.HTTPError as e:
-        return {"error": f"Fetch failed: {type(e).__name__}: {e}"}
+    response = None
+    tls_note = None
+    # First verify normally; if the cert chain doesn't validate (common when a
+    # site serves an incomplete chain that browsers fix via AIA), retry without
+    # verification - we're only reading the user's own public HTML.
+    for verify in (True, False):
+        try:
+            with httpx.Client(follow_redirects=True, timeout=15.0,
+                              headers=headers, verify=verify) as client:
+                response = client.get(url)
+            if not verify:
+                tls_note = ("TLS certificate verification was skipped: the site's "
+                            "certificate chain didn't validate with Python's default "
+                            "trust store (real browsers tolerate this). The page content "
+                            "is still accurate; if this is unexpected, check the site's "
+                            "SSL certificate chain.")
+            break
+        except httpx.HTTPError as e:
+            emsg = f"{type(e).__name__}: {e}"
+            if verify and any(k in emsg.lower() for k in ("ssl", "certificate", "verify")):
+                continue  # retry with verification disabled
+            return {"error": f"Fetch failed: {emsg}"}
+    if response is None:
+        return {"error": "Fetch failed: could not connect even after an SSL retry."}
     return {
         "html": response.text,
         "status": response.status_code,
@@ -219,6 +241,7 @@ def _fetch(url: str) -> dict:
         "page_size_kb": round(len(response.content) / 1024, 1),
         "elapsed_ms": int((time.time() - started) * 1000),
         "render_mode": "static HTML (no JavaScript)",
+        "tls_note": tls_note,
         "elements": None,
     }
 
@@ -257,6 +280,7 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
     final_url = fetched["final_url"]
     status_code = fetched["status"]
     render_mode = fetched["render_mode"]
+    tls_note = fetched.get("tls_note")
     above_fold = _above_fold_ctas(fetched.get("elements"))
 
     if status_code is not None and status_code >= 400:
@@ -347,6 +371,7 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
         "final_url": final_url,
         "status": status_code,
         "render_mode": render_mode,
+        "tls_note": tls_note,
         "load_time_ms": elapsed_ms,
         "page_size_kb": page_size_kb,
 
