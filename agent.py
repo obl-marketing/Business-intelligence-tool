@@ -200,6 +200,26 @@ If the user gives you a number from GA4's UI and your number is off, you almost 
 certainly used `query_events` when you should have used `query_traffic_summary`. \
 Switch tools, re-check, and tell the user what you fixed.
 
+## Engagement time: two different metrics - don't confuse them
+
+GA4's UI headline "**Average engagement time per active user**" (often ~30-40s) is \
+`userEngagementDuration / activeUsers`. This is DIFFERENT from and smaller than \
+"**Average session duration**" (often ~60-90s). `query_traffic_summary` now returns \
+BOTH: use `avg_engagement_time_per_active_user_seconds` when the user says "engagement \
+time" (it matches their GA4 screen), and `avg_session_duration_seconds` only when they \
+say "session duration/length". If your engagement-time number looks ~2x the user's, you \
+reported session duration by mistake - switch to the per-active-user field.
+
+## Filtering by country / geography
+
+To answer anything scoped to a country ("traffic for India", "Indian organic traffic", \
+"engagement time in the US"), pass `country` (the GA4 English name, e.g. "India") to \
+`query_traffic_summary`, `query_acquisition_by_channel`, or \
+`query_acquisition_by_source_medium`. For a ranking across countries or "top countries", \
+use `query_traffic_by_country`. Never tell the user country filtering is unavailable - \
+these tools do it. ("Indian organic traffic" = query_acquisition_by_channel with \
+country="India", then read the Organic Search row.)
+
 # Adapt to THIS site's event names - never assume the standard protocol
 
 Every GA4 property names its events differently. This site may call a product view \

@@ -167,18 +167,46 @@ TOOL_SCHEMAS = [
         "name": "query_traffic_summary",
         "description": (
             "**Source of truth for active users, sessions, page views, engagement rate, "
-            "bounce rate, and average session duration.** Returns account-level totals "
-            "that exactly match GA4 Reports > Acquisition Overview and Engagement Overview. "
-            "Use this for ANY question about 'how is my traffic doing', 'how many active "
-            "users', 'sessions in May', 'engagement rate', 'bounce rate'. Do NOT derive "
-            "these numbers from query_events - they will be ~1% off because of GA4's "
-            "HyperLogLog approximation in event-level user counts."
+            "bounce rate, average session duration, AND the site-wide 'average engagement "
+            "time per active user' (the headline number in GA4's UI).** Returns "
+            "account-level totals that exactly match GA4 Reports > Acquisition/Engagement "
+            "Overview. Use this for ANY question about 'how is my traffic doing', 'active "
+            "users', 'sessions in May', 'engagement rate', 'bounce rate', and 'average "
+            "engagement time per active user'. NOTE: avg_engagement_time_per_active_user "
+            "(userEngagementDuration/activeUsers, e.g. ~33s) is DIFFERENT from and smaller "
+            "than avg_session_duration (~75s) - the GA4 UI headline is the former; use it "
+            "when the user says 'engagement time'. Set `country` to filter to one country "
+            "(e.g. 'India'). Do NOT derive these numbers from query_events."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "start_date": {"type": "string", "description": "YYYY-MM-DD"},
                 "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "country": {
+                    "type": "string",
+                    "description": "Optional GA4 country name to filter to, e.g. 'India', 'United States'. Omit for all countries.",
+                },
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
+        "name": "query_traffic_by_country",
+        "description": (
+            "Per-country traffic and engagement breakdown - active users, sessions, "
+            "**average engagement time per active user**, engagement rate, and avg session "
+            "duration for each country, matching GA4's Country dimension. Use for 'traffic "
+            "by country', 'top countries', 'how is India doing', or to compare countries. "
+            "For metrics about ONE country, you can also use query_traffic_summary with "
+            "the `country` argument."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "limit": {"type": "integer", "description": "Max countries to return (default 30)."},
             },
             "required": ["start_date", "end_date"],
         },
@@ -207,13 +235,19 @@ TOOL_SCHEMAS = [
             "Organic Social, Referral, etc.) - matches GA4 Reports > Acquisition > Traffic "
             "Acquisition. Includes sessions, share, active users, engagement rate, bounce "
             "rate, avg session duration. Use for channel mix questions or 'which channel "
-            "is performing best/worst'."
+            "is performing best/worst'. Set `country` to filter to one country - e.g. to "
+            "answer 'Indian organic traffic', pass country='India' and read the Organic "
+            "Search row."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "start_date": {"type": "string", "description": "YYYY-MM-DD"},
                 "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "country": {
+                    "type": "string",
+                    "description": "Optional GA4 country name to filter to, e.g. 'India'.",
+                },
             },
             "required": ["start_date", "end_date"],
         },
@@ -231,6 +265,10 @@ TOOL_SCHEMAS = [
             "properties": {
                 "start_date": {"type": "string", "description": "YYYY-MM-DD"},
                 "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "country": {
+                    "type": "string",
+                    "description": "Optional GA4 country name to filter to, e.g. 'India'.",
+                },
             },
             "required": ["start_date", "end_date"],
         },
@@ -622,7 +660,15 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                     "note": "Traffic summary needs the live GA4 connection. "
                             "In demo mode, use query_pageviews instead."
                 })
-            return json.dumps(ga4_client.traffic_summary(args["start_date"], args["end_date"]))
+            return json.dumps(ga4_client.traffic_summary(
+                args["start_date"], args["end_date"], country=args.get("country")))
+
+        if name == "query_traffic_by_country":
+            if not _ga4_live():
+                return json.dumps({"note": "Per-country traffic needs the live GA4 connection."})
+            data = ga4_client.traffic_by_country(
+                args["start_date"], args["end_date"], limit=int(args.get("limit", 30)))
+            return json.dumps({"rows": data, "countries": len(data), "source": "ga4_live"})
 
         if name == "query_traffic_over_time":
             if not _ga4_live():
@@ -636,15 +682,21 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
         if name == "query_acquisition_by_channel":
             if not _ga4_live():
                 return json.dumps({"note": "Acquisition-by-channel needs the live GA4 connection."})
-            data = ga4_client.acquisition_by_channel(args["start_date"], args["end_date"])
-            return json.dumps({"rows": data, "channels": len(data), "source": "ga4_live"})
+            data = ga4_client.acquisition_by_channel(
+                args["start_date"], args["end_date"], country=args.get("country"))
+            return json.dumps({"rows": data, "channels": len(data),
+                               "country": args.get("country") or "all countries",
+                               "source": "ga4_live"})
 
         if name == "query_acquisition_by_source_medium":
             if not _ga4_live():
                 return json.dumps({"note": "Acquisition-by-source needs the live GA4 connection."})
             limit = int(args.get("limit", 25))
-            data = ga4_client.acquisition_by_source_medium(args["start_date"], args["end_date"], limit=limit)
-            return json.dumps({"rows": data, "sources": len(data), "source": "ga4_live"})
+            data = ga4_client.acquisition_by_source_medium(
+                args["start_date"], args["end_date"], limit=limit, country=args.get("country"))
+            return json.dumps({"rows": data, "sources": len(data),
+                               "country": args.get("country") or "all countries",
+                               "source": "ga4_live"})
 
         # ---------- GA4 per-page metrics ----------
         if name == "query_page_metrics":

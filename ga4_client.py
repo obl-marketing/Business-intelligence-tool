@@ -60,15 +60,21 @@ def _run_report(
     start_date: str,
     end_date: str,
     event_names: list[str] | None = None,
+    country: str | None = None,
     limit: int = 10000,
 ) -> list[dict]:
-    """Run a GA4 report and return rows as plain dicts (metric values as strings)."""
+    """Run a GA4 report and return rows as plain dicts (metric values as strings).
+
+    `country` filters to a single country by its GA4 English name (e.g. "India",
+    "United States"), matching the GA4 UI's Country dimension.
+    """
     from google.analytics.data_v1beta.types import (
         RunReportRequest,
         DateRange,
         Dimension,
         Metric,
         FilterExpression,
+        FilterExpressionList,
         Filter,
     )
 
@@ -79,12 +85,30 @@ def _run_report(
         metrics=[Metric(name=m) for m in metrics],
         limit=limit,
     )
+    filters: list = []
     if event_names:
-        request.dimension_filter = FilterExpression(
+        filters.append(FilterExpression(
             filter=Filter(
                 field_name="eventName",
                 in_list_filter=Filter.InListFilter(values=event_names),
             )
+        ))
+    if country:
+        filters.append(FilterExpression(
+            filter=Filter(
+                field_name="country",
+                string_filter=Filter.StringFilter(
+                    match_type=Filter.StringFilter.MatchType.EXACT,
+                    value=country,
+                    case_sensitive=False,
+                ),
+            )
+        ))
+    if len(filters) == 1:
+        request.dimension_filter = filters[0]
+    elif len(filters) > 1:
+        request.dimension_filter = FilterExpression(
+            and_group=FilterExpressionList(expressions=filters)
         )
     response = _client().run_report(request)
 
@@ -331,8 +355,11 @@ def form_performance(start: str, end: str) -> list[dict]:
 # Reports > Acquisition > Overview and Reports > Engagement > Overview.
 # Source of truth for "active users", "sessions", "engagement rate" etc.
 
-def traffic_summary(start: str, end: str) -> dict:
-    """Account-level totals matching GA4 Reports > Acquisition Overview."""
+def traffic_summary(start: str, end: str, country: str | None = None) -> dict:
+    """Account-level totals matching GA4 Reports > Acquisition Overview.
+
+    `country` optionally filters to one country by GA4 English name (e.g. "India").
+    """
     rows = _run_report(
         dimensions=[],
         # GA4 Data API allows at most 10 metrics per request.
@@ -346,29 +373,46 @@ def traffic_summary(start: str, end: str) -> dict:
             "engagementRate",
             "bounceRate",
             "averageSessionDuration",
-            "sessionsPerUser",
+            "userEngagementDuration",
         ],
         start_date=start,
         end_date=end,
+        country=country,
     )
     if not rows:
-        return {"note": "No traffic data for this range."}
+        note = "No traffic data for this range."
+        if country:
+            note = f"No traffic data for country '{country}' in this range."
+        return {"note": note}
     r = rows[0]
+    active_users = _num(r["activeUsers"])
+    total_users = _num(r["totalUsers"])
+    sessions = _num(r["sessions"])
+    engagement_seconds = _num(r["userEngagementDuration"])
+    avg_eng_per_user = round(engagement_seconds / active_users, 1) if active_users else 0.0
     return {
         "date_range": {"start": start, "end": end},
-        "active_users": int(_num(r["activeUsers"])),
+        "country": country or "all countries",
+        "active_users": int(active_users),
         "new_users": int(_num(r["newUsers"])),
-        "total_users": int(_num(r["totalUsers"])),
-        "sessions": int(_num(r["sessions"])),
+        "total_users": int(total_users),
+        "sessions": int(sessions),
         "engaged_sessions": int(_num(r["engagedSessions"])),
         "page_views": int(_num(r["screenPageViews"])),
         "engagement_rate_pct": round(_num(r["engagementRate"]) * 100, 2),
         "bounce_rate_pct": round(_num(r["bounceRate"]) * 100, 2),
+        # The metric GA4's UI shows as "Average engagement time per active user".
+        "avg_engagement_time_per_active_user_seconds": avg_eng_per_user,
+        "avg_engagement_time_per_active_user_readable": _fmt_seconds(avg_eng_per_user),
+        # Different metric: total session length / sessions (usually larger).
         "avg_session_duration_seconds": round(_num(r["averageSessionDuration"]), 1),
-        "sessions_per_user": round(_num(r["sessionsPerUser"]), 2),
+        "sessions_per_user": round(sessions / total_users, 2) if total_users else 0.0,
         "source_metric_note": (
-            "Uses GA4 Data API metrics that match Reports > Acquisition Overview "
-            "(activeUsers, sessions, engagementRate). NOT derived from event sums."
+            "avg_engagement_time_per_active_user = userEngagementDuration / activeUsers "
+            "- this is the headline 'Average engagement time per active user' from GA4's "
+            "UI. It is DIFFERENT from and smaller than avg_session_duration "
+            "(averageSessionDuration). Matches Reports > Acquisition/Engagement Overview; "
+            "NOT derived from event sums."
         ),
     }
 
@@ -396,10 +440,12 @@ def traffic_over_time(start: str, end: str) -> list[dict]:
     return out
 
 
-def acquisition_by_channel(start: str, end: str) -> list[dict]:
+def acquisition_by_channel(start: str, end: str, country: str | None = None) -> list[dict]:
     """Per-channel breakdown matching GA4 Reports > Acquisition > Traffic Acquisition.
 
     Uses sessionDefaultChannelGroup (the same dimension the GA4 UI uses there).
+    `country` optionally filters to one country (e.g. "India") - use this to answer
+    "Indian organic traffic": filter by country, then read the Organic Search row.
     """
     rows = _run_report(
         ["sessionDefaultChannelGroup"],
@@ -414,6 +460,7 @@ def acquisition_by_channel(start: str, end: str) -> list[dict]:
         ],
         start,
         end,
+        country=country,
         limit=50,
     )
     total_sessions = sum(int(_num(r["sessions"])) for r in rows) or 1
@@ -435,13 +482,18 @@ def acquisition_by_channel(start: str, end: str) -> list[dict]:
     return out
 
 
-def acquisition_by_source_medium(start: str, end: str, limit: int = 25) -> list[dict]:
-    """Per source / medium breakdown for deeper acquisition analysis."""
+def acquisition_by_source_medium(start: str, end: str, limit: int = 25,
+                                 country: str | None = None) -> list[dict]:
+    """Per source / medium breakdown for deeper acquisition analysis.
+
+    `country` optionally filters to one country (e.g. "India").
+    """
     rows = _run_report(
         ["sessionSourceMedium"],
         ["sessions", "activeUsers", "engagementRate", "bounceRate", "averageSessionDuration"],
         start,
         end,
+        country=country,
         limit=limit,
     )
     out = []
@@ -455,6 +507,39 @@ def acquisition_by_source_medium(start: str, end: str, limit: int = 25) -> list[
             "avg_session_duration_seconds": round(_num(r["averageSessionDuration"]), 1),
         })
     out.sort(key=lambda r: r["sessions"], reverse=True)
+    return out
+
+
+def traffic_by_country(start: str, end: str, limit: int = 30) -> list[dict]:
+    """Per-country traffic + engagement, matching GA4 Reports > User > Demographics
+    (Country) and the Country dimension in Acquisition. Returns active users,
+    sessions, avg engagement time per active user, engagement rate and avg session
+    duration for each country, sorted by active users. Use for "traffic/engagement
+    by country", "how is India doing", "top countries".
+    """
+    rows = _run_report(
+        ["country"],
+        ["activeUsers", "sessions", "userEngagementDuration",
+         "engagementRate", "averageSessionDuration", "screenPageViews"],
+        start,
+        end,
+        limit=limit,
+    )
+    out = []
+    for r in rows:
+        au = _num(r["activeUsers"])
+        eng = _num(r["userEngagementDuration"])
+        out.append({
+            "country": r["country"] or "(not set)",
+            "active_users": int(au),
+            "sessions": int(_num(r["sessions"])),
+            "page_views": int(_num(r["screenPageViews"])),
+            "avg_engagement_time_per_active_user_seconds": round(eng / au, 1) if au else 0.0,
+            "avg_engagement_time_per_active_user_readable": _fmt_seconds(eng / au if au else 0),
+            "engagement_rate_pct": round(_num(r["engagementRate"]) * 100, 2),
+            "avg_session_duration_seconds": round(_num(r["averageSessionDuration"]), 1),
+        })
+    out.sort(key=lambda r: r["active_users"], reverse=True)
     return out
 
 
