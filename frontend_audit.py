@@ -128,7 +128,17 @@ def _render_mode() -> str:
     return (os.environ.get("AUDIT_JS_RENDER", "auto") or "auto").strip().lower()
 
 
-def _render_html_playwright(url: str, timeout_ms: int = 25000) -> dict:
+def _render_settle_ms() -> int:
+    """How long to wait after load for client-side JS to inject popups / lazy
+    content. Configurable via AUDIT_RENDER_WAIT_MS (raise it to catch delayed
+    popups, e.g. a 15-second exit-intent). Default 3000ms, capped at 30000."""
+    try:
+        return max(0, min(int(os.environ.get("AUDIT_RENDER_WAIT_MS", "3000")), 30000))
+    except ValueError:
+        return 3000
+
+
+def _render_html_playwright(url: str, timeout_ms: int = 30000) -> dict:
     """Load the page in headless Chromium so JavaScript runs, and return the
     fully-rendered HTML plus each clickable element's viewport position (for
     real above-the-fold detection). Raises if Playwright/Chromium isn't set up.
@@ -160,8 +170,19 @@ def _render_html_playwright(url: str, timeout_ms: int = 25000) -> dict:
                 ignore_https_errors=True,
             )
             page = ctx.new_page()
-            resp = page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-            page.wait_for_timeout(1200)  # let lazy/animated content settle
+            # 'domcontentloaded' is reliable; 'networkidle' never fires on sites
+            # with chat/analytics/ad pixels that poll continuously, so it would
+            # just time out. If navigation is slow we still grab what rendered.
+            resp = None
+            try:
+                resp = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            except Exception:
+                pass
+            page.wait_for_timeout(_render_settle_ms())  # let JS inject popups/lazy content
+            try:
+                page.wait_for_load_state("load", timeout=6000)
+            except Exception:
+                pass
             out["html"] = page.content()
             out["status"] = resp.status if resp else None
             out["final_url"] = page.url
@@ -189,7 +210,7 @@ def _render_in_thread(url: str) -> dict:
     """Run sync Playwright off the Streamlit thread to avoid any event-loop clash."""
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(_render_html_playwright, url).result(timeout=60)
+        return ex.submit(_render_html_playwright, url).result(timeout=90)
 
 
 def _fetch(url: str) -> dict:
