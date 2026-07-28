@@ -114,7 +114,11 @@ def _text_only(soup: BeautifulSoup) -> str:
     return soup.get_text(" ", strip=True)
 
 
-_UA = ("Mozilla/5.0 (compatible; BIToolAuditBot/1.0; +https://aistudio.google.com)")
+# A realistic desktop-Chrome UA. WAFs/CDNs (Cloudflare, Akamai) 403 obvious bot
+# UAs, and headless Chromium's native UA contains "HeadlessChrome" which is also
+# flagged - so both fetch paths present this instead.
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 _VIEWPORT_H = 900
 
 
@@ -205,10 +209,20 @@ def _fetch(url: str) -> dict:
                     "chromium`. Or set AUDIT_JS_RENDER=off to use static HTML.")}
             # auto: silently fall back to static fetch below
 
+    # Full browser-like header set so a WAF/CDN treats us as a real visitor.
+    # (Accept-Encoding is intentionally omitted - httpx sets it to only what it
+    # can actually decompress, avoiding garbled bodies.)
     headers = {
         "User-Agent": _UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                  "image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
     }
     response = None
     tls_note = None
@@ -284,7 +298,7 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
     above_fold = _above_fold_ctas(fetched.get("elements"))
 
     if status_code is not None and status_code >= 400:
-        return {
+        result = {
             "url": url,
             "final_url": final_url,
             "status": status_code,
@@ -292,6 +306,15 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
             "page_size_kb": page_size_kb,
             "render_mode": render_mode,
         }
+        if status_code in (403, 429) and render_mode.startswith("static"):
+            result["hint"] = (
+                "A 403/429 on a tiny page is usually the site's WAF/CDN (e.g. "
+                "Cloudflare) blocking non-browser requests. Install the headless "
+                "browser on the server (`playwright install --with-deps chromium`) - "
+                "the real-browser render passes these checks where a plain HTTP fetch "
+                "cannot."
+            )
+        return result
 
     soup = BeautifulSoup(fetched["html"], "lxml")
 
