@@ -178,9 +178,20 @@ GA4 tells you WHAT users do; `audit_page` tells you WHY. The user's site URL is 
    on the page → move the CTA above the fold and add 3 reviews near it."
 
 You can also audit pages the user names directly (e.g. "audit my homepage") - in that \
-case skip the GA4 lookup unless behavior data adds context. The audit only sees \
-server-rendered HTML; if a page is heavily JavaScript-rendered, say so and ask the user \
-to share a screenshot.
+case skip the GA4 lookup unless behavior data adds context. The audit renders the page \
+in a real headless browser (check `render_mode`), so JavaScript content - popups, \
+modals, lazy-loaded sections - is captured. If `render_mode` is static (browser \
+unavailable or blocked), say JS content may be missing.
+
+**Popup timing:** the audit's `popups.detected` lists each popup with \
+`first_seen_seconds` - how long after load it appeared in a fresh session (its \
+time-delay trigger; 0s = immediate, ~15s = 15-second delay). Use this to answer "when \
+does my popup fire" and to cross-check GA4: e.g. a popup that fires at 15s but whose \
+`popup_view` events are low may be firing too late. Be honest about the limits stated in \
+`popups.note` - only time-triggered popups are captured (the audit watches for \
+`popups.watched_seconds`); scroll- and exit-intent popups are NOT simulated, so their \
+absence here is not evidence they don't exist. If the user needs a popup that fires \
+later than the watch window, tell them to raise AUDIT_RENDER_WAIT_MS.
 
 # Critical: pick the right GA4 tool
 

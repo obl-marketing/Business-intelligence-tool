@@ -147,6 +147,63 @@ def _render_settle_ms() -> int:
         return 3000
 
 
+_POPUP_DETECT_JS = """() => {
+  const vis = el => {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 60 && r.height > 60 && s.visibility !== 'hidden'
+        && s.display !== 'none' && parseFloat(s.opacity || '1') > 0.1;
+  };
+  const sel = '[role=dialog],[aria-modal=true],.modal,.popup,.mfp-content,'
+    + '.fancybox-container,[class*=popup],[class*=Popup],[class*=modal],'
+    + '[class*=Modal],[id*=popup],[id*=modal]';
+  const out = [];
+  document.querySelectorAll(sel).forEach(el => {
+    if (!vis(el)) return;
+    const s = getComputedStyle(el);
+    if (s.position !== 'fixed' && s.position !== 'absolute') return;
+    out.push({
+      id: el.id || '',
+      cls: (el.className && el.className.toString ? el.className.toString() : '').slice(0, 80),
+      text: (el.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 120),
+      z: parseInt(s.zIndex) || 0,
+    });
+  });
+  return out;
+}"""
+
+
+def _observe_popups(page, window_ms: int) -> list[dict]:
+    """Poll the page over `window_ms` and record, for each popup/modal, HOW LONG
+    after load it first became visible - i.e. its time-delay trigger. Popups
+    present at ~0s load immediately; one at ~15s has a 15-second delay. (Scroll
+    and exit-intent popups aren't simulated, so they won't appear here.)"""
+    import time
+    seen: dict[str, dict] = {}
+    start = time.time()
+    end = start + max(0, window_ms) / 1000.0
+    while True:
+        try:
+            cands = page.evaluate(_POPUP_DETECT_JS)
+        except Exception:
+            cands = []
+        elapsed = round(time.time() - start, 1)
+        for c in cands:
+            key = f"{c.get('id','')}|{(c.get('text','') or '')[:40]}|{(c.get('cls','') or '')[:40]}"
+            if key.strip("|") and key not in seen:
+                seen[key] = {
+                    "first_seen_seconds": elapsed,
+                    "id": c.get("id", ""),
+                    "class": c.get("cls", ""),
+                    "text": c.get("text", ""),
+                    "z_index": c.get("z", 0),
+                }
+        if time.time() >= end:
+            break
+        page.wait_for_timeout(700)
+    return sorted(seen.values(), key=lambda p: p["first_seen_seconds"])[:20]
+
+
 def _render_html_playwright(url: str, timeout_ms: int = 30000) -> dict:
     """Load the page in headless Chromium so JavaScript runs, and return the
     fully-rendered HTML plus each clickable element's viewport position (for
@@ -202,7 +259,11 @@ def _render_html_playwright(url: str, timeout_ms: int = 30000) -> dict:
                 resp = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             except Exception:
                 pass
-            page.wait_for_timeout(_render_settle_ms())  # let JS inject popups/lazy content
+            # Actively watch over the settle window and timestamp each popup as it
+            # appears (instead of a passive wait) - this yields the trigger timing.
+            settle = _render_settle_ms()
+            out["popups"] = _observe_popups(page, settle)
+            out["popup_watch_seconds"] = round(settle / 1000.0, 1)
             try:
                 page.wait_for_load_state("load", timeout=6000)
             except Exception:
@@ -257,6 +318,8 @@ def _fetch(url: str) -> dict:
                 "elapsed_ms": int((time.time() - started) * 1000),
                 "render_mode": "javascript (headless Chromium)",
                 "elements": r.get("elements"),
+                "popups": r.get("popups"),
+                "popup_watch_seconds": r.get("popup_watch_seconds"),
             }
         except Exception as e:
             reason = f"{type(e).__name__}: {e}"
@@ -374,6 +437,8 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
     tls_note = fetched.get("tls_note")
     render_note = fetched.get("render_note")
     above_fold = _above_fold_ctas(fetched.get("elements"))
+    popups_detected = fetched.get("popups")
+    popup_watch_seconds = fetched.get("popup_watch_seconds")
 
     if status_code is not None and status_code >= 400:
         result = {
@@ -523,6 +588,22 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
         },
 
         "trust_and_conversion_signals_detected": trust_signals,
+
+        "popups": {
+            "watched_seconds": popup_watch_seconds,
+            "detected": popups_detected or [],
+            "note": (
+                "first_seen_seconds = how many seconds after page load each popup "
+                "appeared in a fresh session, i.e. its time-delay trigger (0s = shows "
+                "immediately; ~15s = 15-second delay). Only time-triggered popups are "
+                "captured; scroll- and exit-intent-triggered popups are NOT simulated so "
+                "they won't appear. Watched for 'watched_seconds' total - a popup firing "
+                "later than that is missed; raise AUDIT_RENDER_WAIT_MS to watch longer."
+                if popups_detected is not None else
+                "Popup timing needs the JavaScript (headless Chromium) render; this was a "
+                "static fetch."
+            ),
+        },
 
         "audit_notes": (
             "Fully JavaScript-rendered in a headless Chromium browser: SPA modals, "
