@@ -162,6 +162,22 @@ TOOL_SCHEMAS = [
             "required": ["url_or_path"],
         },
     },
+    {
+        "name": "list_site_pages",
+        "description": (
+            "Discover the pages on the user's site from its sitemap, grouped by section, "
+            "so you can audit ACROSS the whole website rather than one page. Use this "
+            "first for any 'across my site' / 'all my pages' request (e.g. auditing "
+            "popups, chatbot, and forms site-wide), then call audit_page on one "
+            "representative page per key section. Needs SITE_BASE_URL set."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max sample URLs to return (default 150)."},
+            },
+        },
+    },
     # ---------- GA4 Acquisition / Engagement (matches Reports, not event sums) ----------
     {
         "name": "query_traffic_summary",
@@ -651,6 +667,11 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
         if name == "audit_page":
             import frontend_audit
             data = frontend_audit.audit_page(args["url_or_path"])
+            return json.dumps(data)
+
+        if name == "list_site_pages":
+            import frontend_audit
+            data = frontend_audit.list_site_pages(limit=int(args.get("limit", 150)))
             return json.dumps(data)
 
         # ---------- GA4 Reports-aligned (acquisition / engagement) ----------

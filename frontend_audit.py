@@ -35,6 +35,128 @@ _TRUST_PATTERNS = {
 }
 
 
+# Chatbot / live-chat / messaging widget signatures (vendor -> regex).
+_CHATBOT_SIGNATURES = {
+    "Intercom": r"intercom",
+    "Drift": r"drift\.com|driftt",
+    "Freshchat": r"freshchat|freshworks|wchat",
+    "Zoho SalesIQ": r"salesiq|zohopublic|zoho.*chat",
+    "Tawk.to": r"tawk\.to",
+    "LiveChat": r"livechatinc|livechat",
+    "Crisp": r"crisp\.chat",
+    "Tidio": r"tidio",
+    "WhatsApp": r"wa\.me|api\.whatsapp|whatsapp",
+    "Gupshup": r"gupshup",
+    "Haptik": r"haptik",
+    "Verloop": r"verloop",
+    "Yellow.ai": r"yellow\.ai|yellowmessenger",
+    "Engati": r"engati",
+    "Kommunicate": r"kommunicate",
+    " Meta Messenger": r"facebook\.com/.*customerchat|fb-customerchat",
+}
+
+
+def list_site_pages(limit: int = 150) -> dict:
+    """Discover the site's pages from its sitemap so an audit can span the whole
+    site. Returns a URL sample plus a count of pages per top-level section, so the
+    agent can pick one of each key page type (homepage, PLP, product, contact,
+    blog) to audit."""
+    import xml.etree.ElementTree as ET
+    from urllib.parse import urlparse
+
+    base = os.environ.get("SITE_BASE_URL", "").rstrip("/")
+    if not base:
+        return {"error": "SITE_BASE_URL isn't set, so I can't locate the sitemap. "
+                         "Set it in secrets, or give me the specific page URLs to audit."}
+
+    headers = {"User-Agent": _UA, "Accept": "application/xml,text/xml,*/*",
+               **_allowlist_headers()}
+
+    def _get(u: str) -> str | None:
+        for verify in (True, False):
+            try:
+                with httpx.Client(follow_redirects=True, timeout=15.0,
+                                  headers=headers, verify=verify) as c:
+                    r = c.get(u)
+                return r.text if r.status_code == 200 else None
+            except httpx.HTTPError as e:
+                if verify and any(k in str(e).lower() for k in ("ssl", "certificate")):
+                    continue
+                return None
+        return None
+
+    def _locs(xml_text: str) -> list[str]:
+        try:
+            root = ET.fromstring(xml_text.encode("utf-8"))
+        except Exception:
+            return []
+        return [el.text.strip() for el in root.iter()
+                if el.tag.endswith("loc") and el.text]
+
+    page_urls: list[str] = []
+    for path in ("/sitemap.xml", "/sitemap_index.xml", "/sitemap-index.xml"):
+        text = _get(base + path)
+        if not text:
+            continue
+        found = _locs(text)
+        children = [u for u in found if u.lower().endswith(".xml")]
+        page_urls += [u for u in found if not u.lower().endswith(".xml")]
+        for sm in children[:25]:  # cap child sitemaps
+            t2 = _get(sm)
+            if t2:
+                page_urls += [u for u in _locs(t2) if not u.lower().endswith(".xml")]
+        if page_urls:
+            break
+
+    if not page_urls:
+        return {"note": "Couldn't read a sitemap at the usual paths. Give me the key "
+                        "page URLs to audit (homepage, a category page, a product page, "
+                        "contact, a blog post) and I'll audit those directly."}
+
+    seen, urls = set(), []
+    for u in page_urls:
+        if u not in seen:
+            seen.add(u)
+            urls.append(u)
+
+    sections: dict[str, int] = {}
+    for u in urls:
+        seg = urlparse(u).path.strip("/").split("/")[0] or "(homepage)"
+        sections[seg] = sections.get(seg, 0) + 1
+
+    return {
+        "total_pages": len(urls),
+        "sections": dict(sorted(sections.items(), key=lambda kv: kv[1], reverse=True)[:40]),
+        "sample_urls": urls[:limit],
+        "note": "To audit site-wide lead touchpoints, pick ONE representative page per "
+                "key section (homepage, a PLP/category, a product page, contact, a blog "
+                "post) and audit each - popups/chatbot are usually site-wide, forms vary "
+                "by page type.",
+    }
+
+
+def _detect_chatbot(html: str, soup: BeautifulSoup) -> dict:
+    """Detect a chatbot / live-chat / messaging widget on the page: named vendors
+    by signature, plus a generic fallback for custom widgets."""
+    low = (html or "").lower()
+    vendors = [name for name, pat in _CHATBOT_SIGNATURES.items()
+               if re.search(pat, low)]
+    generic = bool(soup.select(
+        "[id*=chatbot],[class*=chatbot],[id*=chat-widget],[class*=chat-widget],"
+        "[class*=livechat],[id*=livechat],iframe[src*=chat],iframe[title*=chat],"
+        "[aria-label*=chat],[class*=widget-chat]"
+    ))
+    return {
+        "detected": bool(vendors) or generic,
+        "vendors_identified": vendors,
+        "custom_widget_signals": generic and not vendors,
+        "note": ("Named vendor(s) detected." if vendors else
+                 "A chat-like widget was detected but not tied to a known vendor - "
+                 "likely a custom/in-house chatbot." if generic else
+                 "No chatbot/live-chat widget detected on this page."),
+    }
+
+
 def _resolve_url(target: str) -> str:
     """Accept full URL or path. Path uses SITE_BASE_URL secret if available."""
     if target.startswith(("http://", "https://")):
@@ -588,6 +710,8 @@ def audit_page(url_or_path: str) -> dict[str, Any]:
         },
 
         "trust_and_conversion_signals_detected": trust_signals,
+
+        "chatbot": _detect_chatbot(fetched["html"], soup),
 
         "popups": {
             "watched_seconds": popup_watch_seconds,
