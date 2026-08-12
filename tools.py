@@ -542,7 +542,8 @@ _QUICKLOOK_SHARED_PARAMS = {
     "branch": {"type": "string", "description": "Optional filter to a single branch (e.g. 'N.EAST', 'ROWB')."},
     "dealer_code": {"type": "string", "description": "Optional filter to a single dealer's Merchant_Code / dealer code."},
     "min_count": {"type": "integer", "description": "Optional: only include dealers/branches/zones with AT LEAST this many activities (inclusive)."},
-    "max_count": {"type": "integer", "description": "Optional: only include those with AT MOST this many (inclusive). For 'fewer than 5' pass max_count=4. With group_by='dealer' this automatically includes dealers with ZERO activity."},
+    "max_count": {"type": "integer", "description": "Optional: only include those with AT MOST this many (inclusive). For 'fewer than 5' pass max_count=4. By DEFAULT this counts only dealers who did at least 1 (so 'fewer than 5' returns dealers with 1-4) - dealers with ZERO activity are a separate 'inactive/never used' group and are NOT included unless include_zero=true."},
+    "include_zero": {"type": "boolean", "description": "Default false. Set true ONLY when the user explicitly wants dealers with NO activity - 'inactive', 'never used', 'haven't used the app', 'zero sessions', 'dormant'. Then dealers with 0 are included; combine with max_count=0 to list exactly the dealers who did nothing. Do NOT set this for a plain 'fewer than N' question."},
     "top": {"type": "integer", "description": "Max rows to return (default 100). The full matched total is reported separately."},
 }
 
@@ -634,6 +635,7 @@ def _run_quicklook_tool(name: str, args: dict[str, Any]) -> str:
         zone=args.get("zone"), branch=args.get("branch"),
         dealer_code=args.get("dealer_code"),
         min_count=_int("min_count"), max_count=_int("max_count"),
+        include_zero=bool(args.get("include_zero", False)),
         top=int(args.get("top", 100)),
         source=source, truncated=truncated, period=period,
     )

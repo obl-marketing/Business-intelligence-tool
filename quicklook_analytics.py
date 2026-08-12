@@ -77,10 +77,13 @@ def summarize(type_key: str, rows: list[dict], *,
             continue
         per_dealer[dealer["dealer_code"]] += 1
 
-    # Whether to include dealers with zero activity. Needed for "< N" style
-    # questions (a dealer with 0 activity never appears in the API rows).
+    # Whether to include dealers with ZERO activity. Off by default: "fewer
+    # than 5 sessions" means light-but-active dealers (1-4), and a dealer who
+    # did nothing is a separate "inactive / never used" group. Turn this on
+    # explicitly (include_zero=True) to fold in or target zero-activity dealers
+    # - e.g. include_zero=True + max_count=0 lists dealers who did nothing.
     if include_zero is None:
-        include_zero = (min_count is not None or max_count is not None) and group_by == "dealer"
+        include_zero = False
 
     def _passes(c: int) -> bool:
         if min_count is not None and c < min_count:

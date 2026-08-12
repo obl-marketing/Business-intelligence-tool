@@ -220,9 +220,12 @@ How to use them:
 zone), `branch`, or `zone`. Filter with `zone` ("North" matches North-1..4, or a \
 specific "East-1"), `branch`, or `dealer_code`.
 - **Thresholds:** `max_count` / `min_count` answer "dealers who did fewer/more than \
-N". "fewer than 5" -> `max_count=4`. With `group_by='dealer'` this INCLUDES dealers \
-with **zero** activity - essential for finding inactive/low-usage dealers, since a \
-dealer with no activity never appears in the raw data.
+N". "fewer than 5" -> `max_count=4`, and this means dealers with **1-4** activity - \
+a dealer with **zero** activity is NOT "a light user", it's a separate "inactive / \
+never used the app" case, so it is excluded by default. Only when the user explicitly \
+asks for inactive / dormant / "never used" / "zero" dealers do you set \
+`include_zero=true` (and use `max_count=0` to list exactly those who did nothing). \
+Never fold zero-activity dealers into a plain "fewer than N" answer.
 - **Only dealers.** There is no employee / BH / ZH / national-head reporting - do not \
 offer it. Stick to dealer, branch, and zone.
 - **Coverage honesty:** the dealer directory is a partial list. Every result has a \
