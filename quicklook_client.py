@@ -20,7 +20,9 @@ from __future__ import annotations
 import os
 import time
 
-DEFAULT_BASE_URL = "http://quicklook.orientbell.com"
+# HTTPS by default: the API also serves 443, and some networks block outbound
+# port 80. Override with QUICKLOOK_BASE_URL if needed.
+DEFAULT_BASE_URL = "https://quicklook.orientbell.com"
 ENDPOINT_PATH = "/QAPIv2/Customers/GetUsageStats"
 MAX_PERPAGE = 500
 # Hard ceiling so a huge/misdated query can never pull unbounded data.
