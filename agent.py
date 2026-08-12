@@ -135,9 +135,17 @@ def _data_coverage_note() -> str:
             "if the user asks about ads, answer from the demo data but remind them it is "
             "sample data until those sources are connected."
         )
+    ql = ""
+    try:
+        import quicklook_client
+        ql = (" **QuickLook dealer usage is LIVE.**"
+              if quicklook_client.is_active()
+              else " QuickLook dealer usage is DEMO data until a token is set.")
+    except Exception:
+        pass
     return (
-        f"The available data covers {mock_data.DATA_START.isoformat()} to "
-        f"{mock_data.DATA_END.isoformat()} (demo dataset)."
+        f"The available GA4/Ads data covers {mock_data.DATA_START.isoformat()} to "
+        f"{mock_data.DATA_END.isoformat()} (demo dataset)." + ql
     )
 
 
@@ -158,6 +166,7 @@ Connected sources:
 - **Google Analytics 4** - site traffic, events, funnels, products, lead forms
 - **Google Ads** - account/campaign/keyword performance (spend, clicks, conversions, ROAS)
 - **Meta Ads** (Facebook + Instagram) - campaigns and per-creative performance
+- **QuickLook dealer usage** - what dealers (channel partners) do in the app: designs, catalogues, quotations, sessions, and voice prompts, roll-able up by dealer / branch / zone
 
 Today's date is {today}. {_data_coverage_note()}
 
@@ -192,6 +201,39 @@ does my popup fire" and to cross-check GA4: e.g. a popup that fires at 15s but w
 `popups.watched_seconds`); scroll- and exit-intent popups are NOT simulated, so their \
 absence here is not evidence they don't exist. If the user needs a popup that fires \
 later than the watch window, tell them to raise AUDIT_RENDER_WAIT_MS.
+
+# Dealer usage activity (QuickLook)
+
+Separate from GA4/Ads, you can report what **dealers** (channel partners) do in \
+the OBL app. Each dealer has a Merchant_Code and belongs to a **branch** and a \
+**zone**. Five tools, all counting one activity per row:
+- `query_sessions` - app sessions done
+- `query_design_activity` - designs shared
+- `query_catalogue_activity` - catalogues shared
+- `query_quotation_activity` - quotations generated/shared
+- `query_voice_prompts` - voice searches done (samples include the transcript)
+
+How to use them:
+- **Dates:** convert "June", "last month", "last 3 months" into explicit \
+`start_date`/`end_date` from today's date before calling.
+- **Slice with `group_by`** = `dealer` (default; each row has dealer name, branch, \
+zone), `branch`, or `zone`. Filter with `zone` ("North" matches North-1..4, or a \
+specific "East-1"), `branch`, or `dealer_code`.
+- **Thresholds:** `max_count` / `min_count` answer "dealers who did fewer/more than \
+N". "fewer than 5" -> `max_count=4`. With `group_by='dealer'` this INCLUDES dealers \
+with **zero** activity - essential for finding inactive/low-usage dealers, since a \
+dealer with no activity never appears in the raw data.
+- **Only dealers.** There is no employee / BH / ZH / national-head reporting - do not \
+offer it. Stick to dealer, branch, and zone.
+- **Coverage honesty:** the dealer directory is a partial list. Every result has a \
+`coverage` block and often a `note` about rows that couldn't be attributed (dealer \
+codes outside the directory, internal/employee codes, or missing codes). When it's \
+non-trivial, mention it so the user knows the count's coverage - e.g. "412 designs in \
+North, plus 37 from dealers not in the directory."
+- Example: *"branches with dealers who did fewer than 5 sessions last month"* -> \
+`query_sessions(start_date=<first of last month>, end_date=<last of last month>, \
+group_by='dealer', max_count=4)`, then present dealer name + branch, optionally \
+grouped by branch.
 
 # Critical: pick the right GA4 tool
 

@@ -53,11 +53,21 @@ GITHUB_TOKEN=github_pat_...
 GITHUB_REPO=obl-marketing/business-intelligence-tool
 GITHUB_BRANCH=claude/relaxed-volta-hvi2d
 SITE_BASE_URL=https://www.orientbell.com
+QUICKLOOK_API_TOKEN=your_getusagestats_bearer_token
 EOF
 sudo chmod 600 /opt/stars/stars.env
 sudo chown stars:stars /opt/stars/stars.env
 ```
 > `GA4_SERVICE_ACCOUNT_JSON` must be the JSON **on a single line** (no line breaks) in this env-file format.
+
+> **QuickLook dealer usage** (designs / catalogues / quotations / sessions / voice prompts by
+> dealer): set `QUICKLOOK_API_TOKEN` to the GetUsageStats bearer token to go live. It is
+> independent of `DATA_SOURCE` — leave the token out to keep demo data. The API host
+> (`quicklook.orientbell.com`, plain HTTP) is internal, so the STARS **server must be able to
+> reach it** (it is not reachable from outside the OBL network). Optional: `QUICKLOOK_BASE_URL`
+> (defaults to `http://quicklook.orientbell.com`), and `DEALER_DIRECTORY_CSV` if you relocate the
+> dealer list. The bundled `data/dealer_hierarchy.csv` maps each dealer code → branch/zone and is
+> the spine for the counts; replace it to refresh or extend dealer coverage.
 
 ## 5. Install the service
 ```bash

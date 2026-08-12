@@ -2,11 +2,14 @@
 
 A chat-based business intelligence tool that connects to your data sources and acts like an AI data scientist. Ships with three sources wired up (mock data for the demo) and powered by your choice of **Anthropic Claude** or **Google Gemini**:
 
+- **QuickLook dealer usage** - designs, catalogues, quotations, sessions & voice prompts by dealer, rolled up by dealer / branch / zone
 - **Google Analytics 4** - traffic, events, funnels, products, lead forms
 - **Google Ads** - campaigns, keywords, spend, ROAS
 - **Meta Ads** (Facebook + Instagram) - campaigns and per-creative performance
 
 Ask questions like:
+- *"Which branches have dealers who did fewer than 5 sessions last month?"*
+- *"How many designs were shared in the North zone in June?"*
 - *"How many page views did I get in May?"*
 - *"Analyse my user journey and tell me where there's a drop-off."*
 - *"Which Google Ads campaigns are wasting spend?"*
