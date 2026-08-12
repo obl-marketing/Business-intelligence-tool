@@ -115,7 +115,9 @@ def _get_secret(key: str, default: str = "") -> str:
 # (tools.py / ga4_client.py) can read them.
 for _key in ("DATA_SOURCE", "GA4_PROPERTY_ID", "GA4_SERVICE_ACCOUNT_JSON",
              "GA4_SERVICE_ACCOUNT_FILE", "SITE_BASE_URL",
-             "GITHUB_TOKEN", "GITHUB_REPO", "GITHUB_BRANCH"):
+             "GITHUB_TOKEN", "GITHUB_REPO", "GITHUB_BRANCH",
+             "QUICKLOOK_API_TOKEN", "QUICKLOOK_BASE_URL", "QUICKLOOK_ENABLED",
+             "DEALER_DIRECTORY_CSV"):
     _val = _get_secret(_key)
     if _val:
         os.environ[_key] = _val

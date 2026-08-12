@@ -524,11 +524,122 @@ TOOL_SCHEMAS = [
 ]
 
 
+# ---- QuickLook dealer-usage tools ----
+# Five activity types, one shared parameter set. These count dealer activity
+# from the QuickLook GetUsageStats API and roll it up by dealer / branch / zone
+# using the dealer directory. All slicing is dealer-centric (no employee / BH /
+# ZH reporting).
+
+_QUICKLOOK_SHARED_PARAMS = {
+    "start_date": {"type": "string", "description": "Start of the period, YYYY-MM-DD. Convert 'June' / 'last month' / 'last 3 months' to explicit dates using today's date."},
+    "end_date": {"type": "string", "description": "End of the period, inclusive, YYYY-MM-DD."},
+    "group_by": {
+        "type": "string",
+        "enum": ["dealer", "branch", "zone"],
+        "description": "How to roll up the counts. 'dealer' = one row per dealer (with branch & zone); 'branch' = totals per branch; 'zone' = totals per zone group (North/East/South/West/Enterprise). Default 'dealer'.",
+    },
+    "zone": {"type": "string", "description": "Optional filter. Accepts a zone group ('North' matches North-1..North-4) or a specific zone ('East-1'). A trailing 'zone' word is fine ('North zone')."},
+    "branch": {"type": "string", "description": "Optional filter to a single branch (e.g. 'N.EAST', 'ROWB')."},
+    "dealer_code": {"type": "string", "description": "Optional filter to a single dealer's Merchant_Code / dealer code."},
+    "min_count": {"type": "integer", "description": "Optional: only include dealers/branches/zones with AT LEAST this many activities (inclusive)."},
+    "max_count": {"type": "integer", "description": "Optional: only include those with AT MOST this many (inclusive). For 'fewer than 5' pass max_count=4. By DEFAULT this counts only dealers who did at least 1 (so 'fewer than 5' returns dealers with 1-4) - dealers with ZERO activity are a separate 'inactive/never used' group and are NOT included unless include_zero=true."},
+    "include_zero": {"type": "boolean", "description": "Default false. Set true ONLY when the user explicitly wants dealers with NO activity - 'inactive', 'never used', 'haven't used the app', 'zero sessions', 'dormant'. Then dealers with 0 are included; combine with max_count=0 to list exactly the dealers who did nothing. Do NOT set this for a plain 'fewer than N' question."},
+    "top": {"type": "integer", "description": "Max rows to return (default 100). The full matched total is reported separately."},
+}
+
+_QUICKLOOK_TOOL_DEFS = {
+    "query_sessions": "Count app SESSIONS done by dealers (each row = one session). Use for 'how many sessions', 'which dealers logged in least', app adoption/engagement, and finding inactive dealers.",
+    "query_design_activity": "Count DESIGNS shared by dealers (each row = one design/visualizer request). Use for 'how many designs shared' by dealer/branch/zone over a period.",
+    "query_catalogue_activity": "Count CATALOGUES shared by dealers (each row = one catalogue activity). Use for 'how many catalogues shared' by dealer/branch/zone.",
+    "query_quotation_activity": "Count QUOTATIONS generated/shared by dealers (each row = one quotation). Use for 'how many quotations' by dealer/branch/zone.",
+    "query_voice_prompts": "Count VOICE PROMPTS done by dealers (each row = one voice search; samples include the transcript). Use for 'how many voice prompts' and to read what dealers searched by voice.",
+}
+
+for _name, _desc in _QUICKLOOK_TOOL_DEFS.items():
+    TOOL_SCHEMAS.append({
+        "name": _name,
+        "description": (
+            _desc + " Counts come from raw dealer-usage rows joined to the dealer "
+            "directory; dealers outside the directory, internal/employee codes, and "
+            "rows with no dealer code are reported separately as a coverage gap."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": dict(_QUICKLOOK_SHARED_PARAMS),
+            "required": ["start_date", "end_date"],
+        },
+    })
+
+
 # ---- Tool dispatch ----
 
 def _ga4_live() -> bool:
     import ga4_client
     return ga4_client.is_active()
+
+
+_QUICKLOOK_TYPE_BY_TOOL = {
+    "query_sessions": "sessions",
+    "query_design_activity": "design",
+    "query_catalogue_activity": "catalogue",
+    "query_quotation_activity": "quotation",
+    "query_voice_prompts": "voice_prompts",
+}
+
+
+def _quicklook_coverage() -> dict:
+    import quicklook_client
+    import dealer_directory
+    live = quicklook_client.is_active()
+    dstats = dealer_directory.stats()
+    cov = {
+        "source": "quicklook_live" if live else "mock",
+        "dealers_in_directory": dstats["dealers"],
+        "zones": dstats["zone_groups"],
+        "branches": dstats["branches"],
+        "activity_types": ["design", "catalogue", "quotation", "sessions", "voice_prompts"],
+        "dimensions": ["dealer", "branch", "zone"],
+    }
+    if not live:
+        import mock_quicklook
+        cov["data_start"] = mock_quicklook.MOCK_START.isoformat()
+        cov["data_end"] = mock_quicklook.MOCK_END.isoformat()
+        cov["note"] = ("Demo dealer-usage data until QUICKLOOK_API_TOKEN is set. "
+                       "Counts are computed from raw rows joined to the dealer directory.")
+    return cov
+
+
+def _run_quicklook_tool(name: str, args: dict[str, Any]) -> str:
+    import quicklook_client
+    import quicklook_analytics
+
+    type_key = _QUICKLOOK_TYPE_BY_TOOL[name]
+    start = _parse_date(args["start_date"])
+    end = _parse_date(args["end_date"])
+    period = {"start": args["start_date"], "end": args["end_date"]}
+
+    if quicklook_client.is_active():
+        fetched = quicklook_client.fetch_rows(type_key, args["start_date"], args["end_date"])
+        rows, source, truncated = fetched["rows"], "quicklook_live", fetched["truncated"]
+    else:
+        import mock_quicklook
+        rows, source, truncated = mock_quicklook.rows(type_key, start, end), "mock", False
+
+    def _int(key):
+        v = args.get(key)
+        return int(v) if v is not None else None
+
+    result = quicklook_analytics.summarize(
+        type_key, rows,
+        group_by=args.get("group_by", "dealer"),
+        zone=args.get("zone"), branch=args.get("branch"),
+        dealer_code=args.get("dealer_code"),
+        min_count=_int("min_count"), max_count=_int("max_count"),
+        include_zero=bool(args.get("include_zero", False)),
+        top=int(args.get("top", 100)),
+        source=source, truncated=truncated, period=period,
+    )
+    return json.dumps(result)
 
 
 def run_tool(name: str, args: dict[str, Any]) -> str:
@@ -654,14 +765,22 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                     "meta_ads": {"source": "mock",
                                  "data_start": mock_data.DATA_START.isoformat(),
                                  "data_end": mock_data.DATA_END.isoformat()},
+                    "quicklook_dealer_usage": _quicklook_coverage(),
                 })
             return json.dumps({
                 "data_start": mock_data.DATA_START.isoformat(),
                 "data_end": mock_data.DATA_END.isoformat(),
                 "source": "mock",
-                "connected_sources": ["google_analytics", "google_ads", "meta_ads"],
-                "note": "Synthetic data for demo. Swap in real APIs by editing tools.py.",
+                "connected_sources": ["google_analytics", "google_ads", "meta_ads",
+                                      "quicklook_dealer_usage"],
+                "quicklook_dealer_usage": _quicklook_coverage(),
+                "note": "GA4 / Google Ads / Meta Ads are synthetic demo data. "
+                        "QuickLook dealer usage is live when a token is set (see its block).",
             })
+
+        # ---------- QuickLook dealer usage ----------
+        if name in _QUICKLOOK_TYPE_BY_TOOL:
+            return _run_quicklook_tool(name, args)
 
         # ---------- Frontend audit ----------
         if name == "audit_page":
