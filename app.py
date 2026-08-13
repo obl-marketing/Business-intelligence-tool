@@ -119,7 +119,9 @@ for _key in ("DATA_SOURCE", "GA4_PROPERTY_ID", "GA4_SERVICE_ACCOUNT_JSON",
              "QUICKLOOK_API_TOKEN", "QUICKLOOK_BASE_URL", "QUICKLOOK_ENABLED",
              "DEALER_DIRECTORY_CSV",
              "META_ACCESS_TOKEN", "META_AD_ACCOUNT_ID", "META_API_VERSION",
-             "META_CONVERSION_ACTION", "META_ADS_ENABLED"):
+             "META_CONVERSION_ACTION", "META_ADS_ENABLED",
+             "ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REFRESH_TOKEN",
+             "ZOHO_ACCOUNTS_URL", "ZOHO_API_DOMAIN", "ZOHO_ENABLED"):
     _val = _get_secret(_key)
     if _val:
         os.environ[_key] = _val
