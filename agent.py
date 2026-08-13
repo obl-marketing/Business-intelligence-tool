@@ -219,13 +219,23 @@ How to use them:
 - **Slice with `group_by`** = `dealer` (default; each row has dealer name, branch, \
 zone), `branch`, or `zone`. Filter with `zone` ("North" matches North-1..4, or a \
 specific "East-1"), `branch`, or `dealer_code`.
-- **Thresholds:** `max_count` / `min_count` answer "dealers who did fewer/more than \
-N". "fewer than 5" -> `max_count=4`, and this means dealers with **1-4** activity - \
-a dealer with **zero** activity is NOT "a light user", it's a separate "inactive / \
-never used the app" case, so it is excluded by default. Only when the user explicitly \
-asks for inactive / dormant / "never used" / "zero" dealers do you set \
-`include_zero=true` (and use `max_count=0` to list exactly those who did nothing). \
-Never fold zero-activity dealers into a plain "fewer than N" answer.
+- **Low-usage / light users = 1-4.** "fewer than 5" / "below 5" / "between 1 and 5" \
+sessions all mean dealers with **1, 2, 3 or 4** - one or more but below five. Use \
+`max_count=4` (leave `include_zero` off, so zero-activity dealers are excluded). These \
+are dealers who ARE using the app, just lightly - a different group from inactive/non-\
+users. Never fold zero-activity dealers into a "fewer than N" answer.
+- **Inactive / non-users -> ALWAYS ask for a timeline FIRST.** "Inactive", "non-users", \
+"dormant", "not using the app", "never used", "haven't used" = dealers who are in our \
+dealer list (the CSV) but have **no app sessions at all** in a given period (their CP/\
+Merchant_Code is absent from the QuickLook API for that window). There is NO sensible \
+default period, so if the user asks about inactive/non-users **without** giving a \
+timeframe, your FIRST reply must ASK for one - e.g. "Over what period should I check - \
+last month, last 3 months?" - and STOP there. Do NOT call any tool or guess a period. \
+Once they give the timeframe, call `query_sessions` with `include_zero=true` and \
+`max_count=0` (plus any zone/branch they named); the returned dealers are your inactive/\
+non-user list. Explain what it means: these dealers invoice with us and are in our list, \
+but did not open the app in that window - so they are registered/known dealers who \
+aren't using it (never installed, or installed but dormant).
 - **Only dealers.** There is no employee / BH / ZH / national-head reporting - do not \
 offer it. Stick to dealer, branch, and zone.
 - **Coverage honesty:** the dealer directory is a partial list. Every result has a \
