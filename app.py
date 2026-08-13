@@ -292,6 +292,20 @@ with st.sidebar:
             "Tokens expire every ~60 days; rotate via Business Manager."
         )
 
+    _quicklook_live = bool((os.environ.get("QUICKLOOK_API_TOKEN") or "").strip())
+    _instalook_label = (
+        "Instalook  —  ✅ LIVE" if _quicklook_live
+        else "Instalook  —  connected (demo)"
+    )
+    with st.expander(_instalook_label, expanded=False):
+        if _quicklook_live:
+            st.success("Querying the live Instalook dealer-usage API.")
+        st.markdown(
+            "Dealer app usage — **designs, catalogues, quotations, sessions, and "
+            "voice prompts** — by dealer, branch, and zone. Set `QUICKLOOK_API_TOKEN` "
+            "to go live."
+        )
+
     st.divider()
     st.subheader("Conversations")
     if st.button("+ New chat", use_container_width=True, type="primary"):
@@ -607,10 +621,9 @@ def _training_datasets_cached(sig):
 
 _training_datasets = _training_datasets_cached(knowledge_base.training_dataset_signature())
 
-if _training_datasets or st.session_state["chat_datasets"]:
-    _bits = [f"{d['label']} ({d['rows']:,}×{d['cols']})"
-             for d in _training_datasets + st.session_state["chat_datasets"]]
-    st.caption("📊 Data available to analyse: " + "  ·  ".join(_bits))
+# Note: the "Data available to analyse" caption was intentionally removed so it
+# no longer shows on every chat. The datasets are still loaded here and remain
+# fully available to the agent (see `datasets` built below).
 
 # The 📎 attach button lives INSIDE the chat bar, right next to the text field.
 _user_input = st.chat_input(
