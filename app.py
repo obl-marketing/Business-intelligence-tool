@@ -117,7 +117,9 @@ for _key in ("DATA_SOURCE", "GA4_PROPERTY_ID", "GA4_SERVICE_ACCOUNT_JSON",
              "GA4_SERVICE_ACCOUNT_FILE", "SITE_BASE_URL",
              "GITHUB_TOKEN", "GITHUB_REPO", "GITHUB_BRANCH",
              "QUICKLOOK_API_TOKEN", "QUICKLOOK_BASE_URL", "QUICKLOOK_ENABLED",
-             "DEALER_DIRECTORY_CSV"):
+             "DEALER_DIRECTORY_CSV",
+             "META_ACCESS_TOKEN", "META_AD_ACCOUNT_ID", "META_API_VERSION",
+             "META_CONVERSION_ACTION", "META_ADS_ENABLED"):
     _val = _get_secret(_key)
     if _val:
         os.environ[_key] = _val
@@ -273,7 +275,15 @@ with st.sidebar:
             "6. Reboot the app."
         )
 
-    with st.expander("Meta Ads (Facebook + Instagram)  —  connected (mock)", expanded=False):
+    _meta_live = bool((os.environ.get("META_ACCESS_TOKEN") or "").strip()
+                      and (os.environ.get("META_AD_ACCOUNT_ID") or "").strip())
+    _meta_label = (
+        "Meta Ads (Facebook + Instagram)  —  ✅ LIVE" if _meta_live
+        else "Meta Ads (Facebook + Instagram)  —  connected (mock)"
+    )
+    with st.expander(_meta_label, expanded=False):
+        if _meta_live:
+            st.success(f"Querying live Meta ad account {os.environ.get('META_AD_ACCOUNT_ID')}")
         st.markdown(
             "**To connect your real Meta Ads account:**\n\n"
             "1. Go to https://developers.facebook.com/apps and create a "

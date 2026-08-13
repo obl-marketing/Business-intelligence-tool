@@ -578,6 +578,11 @@ def _ga4_live() -> bool:
     return ga4_client.is_active()
 
 
+def _meta_live() -> bool:
+    import meta_client
+    return meta_client.is_active()
+
+
 _QUICKLOOK_TYPE_BY_TOOL = {
     "query_sessions": "sessions",
     "query_design_activity": "design",
@@ -916,24 +921,41 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
         if name == "query_meta_ads_summary":
             start = _parse_date(args["start_date"])
             end = _parse_date(args["end_date"])
+            if _meta_live():
+                import meta_client
+                data = meta_client.meta_ads_summary(args["start_date"], args["end_date"])
+                data["source"] = "meta_live"
+                return json.dumps(data)
             return json.dumps(mock_data.meta_ads_summary(start, end))
 
         if name == "query_meta_ads_campaigns":
             start = _parse_date(args["start_date"])
             end = _parse_date(args["end_date"])
-            data = mock_data.meta_ads_campaigns(start, end)
+            if _meta_live():
+                import meta_client
+                data = meta_client.meta_ads_campaigns(args["start_date"], args["end_date"])
+                source = "meta_live"
+            else:
+                data = mock_data.meta_ads_campaigns(start, end)
+                source = "mock"
             spending = [c for c in data if c["spend"] > 0]
             best = max(spending, key=lambda c: c["roas"]) if spending else None
             worst = min(spending, key=lambda c: c["roas"]) if spending else None
-            return json.dumps({"rows": data, "best_roas": best, "worst_roas": worst})
+            return json.dumps({"rows": data, "best_roas": best, "worst_roas": worst, "source": source})
 
         if name == "query_meta_ads_creatives":
             start = _parse_date(args["start_date"])
             end = _parse_date(args["end_date"])
-            data = mock_data.meta_ads_creatives(start, end)
+            if _meta_live():
+                import meta_client
+                data = meta_client.meta_ads_creatives(args["start_date"], args["end_date"])
+                source = "meta_live"
+            else:
+                data = mock_data.meta_ads_creatives(start, end)
+                source = "mock"
             best = data[0] if data else None
             worst = data[-1] if data else None
-            return json.dumps({"rows": data, "best_creative": best, "worst_creative": worst})
+            return json.dumps({"rows": data, "best_creative": best, "worst_creative": worst, "source": source})
 
         return json.dumps({"error": f"Unknown tool: {name}"})
 
