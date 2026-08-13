@@ -149,8 +149,29 @@ def _data_coverage_note() -> str:
     )
 
 
+def _quicklook_mode_note() -> str:
+    try:
+        import quicklook_analytics
+        if not quicklook_analytics.directory_enabled():
+            return (
+                "\n**API-ONLY MODE IS ON - do NOT cross-reference the dealer CSV.** "
+                "Answer purely from the QuickLook API. Filter zones by the zone the API "
+                "returns on each row (`m_zone`), and group dealers by `Merchant_Code` "
+                "(show dealer CODES, not names - names and branch come only from the CSV "
+                "and are unavailable now). Every dealer the API returns is included, "
+                "active or not. Inactive / non-user detection is DISABLED in this mode "
+                "(it needs the CSV) - if asked, say cross-referencing is currently turned "
+                "off and offer to re-enable it. Ignore the 'directory / branch / inactive' "
+                "guidance below while this mode is on.\n"
+            )
+    except Exception:
+        pass
+    return ""
+
+
 def system_prompt() -> str:
     today = _dt.date.today().isoformat()
+    quicklook_mode_note = _quicklook_mode_note()
     site_base_url = os.environ.get("SITE_BASE_URL", "").rstrip("/")
     site_base_url_note = (
         f"`{site_base_url}` (pass paths like `/products/abc` or full URLs to audit_page)"
@@ -203,7 +224,7 @@ absence here is not evidence they don't exist. If the user needs a popup that fi
 later than the watch window, tell them to raise AUDIT_RENDER_WAIT_MS.
 
 # Dealer usage activity (QuickLook)
-
+{quicklook_mode_note}
 Separate from GA4/Ads, you can report what **dealers** (channel partners) do in \
 the OBL app. Each dealer has a Merchant_Code and belongs to a **branch** and a \
 **zone**. Five tools, all counting one activity per row:
