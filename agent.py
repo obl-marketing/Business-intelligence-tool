@@ -126,27 +126,37 @@ def _data_coverage_note() -> str:
     ga4_live = os.environ.get("DATA_SOURCE", "mock").lower() == "ga4" and bool(
         os.environ.get("GA4_PROPERTY_ID")
     )
-    if ga4_live:
-        return (
-            "**Google Analytics 4 is LIVE** - queries hit the user's real GA4 property, "
-            "which typically retains up to 14 months of history. "
-            "Google Ads and Meta Ads are still DEMO data covering "
-            f"{mock_data.DATA_START.isoformat()} to {mock_data.DATA_END.isoformat()} - "
-            "if the user asks about ads, answer from the demo data but remind them it is "
-            "sample data until those sources are connected."
-        )
-    ql = ""
+    try:
+        import meta_client
+        meta_live = meta_client.is_active()
+    except Exception:
+        meta_live = False
     try:
         import quicklook_client
-        ql = (" **QuickLook dealer usage is LIVE.**"
-              if quicklook_client.is_active()
-              else " QuickLook dealer usage is DEMO data until a token is set.")
+        ql_live = quicklook_client.is_active()
     except Exception:
-        pass
-    return (
-        f"The available GA4/Ads data covers {mock_data.DATA_START.isoformat()} to "
-        f"{mock_data.DATA_END.isoformat()} (demo dataset)." + ql
+        ql_live = False
+
+    demo = f"{mock_data.DATA_START.isoformat()} to {mock_data.DATA_END.isoformat()}"
+    parts = []
+    parts.append(
+        "**Google Analytics 4 is LIVE** - real property, ~14 months of history."
+        if ga4_live else
+        f"Google Analytics 4 is DEMO data covering {demo}."
     )
+    parts.append(f"Google Ads is DEMO data covering {demo}.")
+    parts.append(
+        "**Meta Ads is LIVE** - a real ad account. There is NO demo date cutoff for "
+        "Meta; query whatever real date range the user asks for (e.g. July) via the "
+        "meta ads tools and report the real numbers."
+        if meta_live else
+        f"Meta Ads is DEMO data covering {demo}."
+    )
+    parts.append(
+        "**QuickLook dealer usage is LIVE.**" if ql_live
+        else "QuickLook dealer usage is DEMO data until a token is set."
+    )
+    return " ".join(parts)
 
 
 def _quicklook_mode_note() -> str:
