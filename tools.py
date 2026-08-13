@@ -592,6 +592,16 @@ _QUICKLOOK_TYPE_BY_TOOL = {
 }
 
 
+def _meta_coverage() -> dict:
+    if _meta_live():
+        return {"source": "meta_live",
+                "note": "Live Meta ad account. No demo date cutoff - query any real "
+                        "date range (subject to the account's data retention)."}
+    return {"source": "mock",
+            "data_start": mock_data.DATA_START.isoformat(),
+            "data_end": mock_data.DATA_END.isoformat()}
+
+
 def _quicklook_coverage() -> dict:
     import quicklook_client
     import dealer_directory
@@ -767,9 +777,7 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                     "google_ads": {"source": "mock",
                                    "data_start": mock_data.DATA_START.isoformat(),
                                    "data_end": mock_data.DATA_END.isoformat()},
-                    "meta_ads": {"source": "mock",
-                                 "data_start": mock_data.DATA_START.isoformat(),
-                                 "data_end": mock_data.DATA_END.isoformat()},
+                    "meta_ads": _meta_coverage(),
                     "quicklook_dealer_usage": _quicklook_coverage(),
                 })
             return json.dumps({
@@ -778,6 +786,7 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                 "source": "mock",
                 "connected_sources": ["google_analytics", "google_ads", "meta_ads",
                                       "quicklook_dealer_usage"],
+                "meta_ads": _meta_coverage(),
                 "quicklook_dealer_usage": _quicklook_coverage(),
                 "note": "GA4 / Google Ads / Meta Ads are synthetic demo data. "
                         "QuickLook dealer usage is live when a token is set (see its block).",
