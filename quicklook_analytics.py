@@ -19,11 +19,28 @@ Merchant_Code and m_zone.
 """
 from __future__ import annotations
 import os
+import re
 from collections import defaultdict
 
 import dealer_directory
 
 GROUP_BYS = ("dealer", "branch", "zone")
+
+# A real channel-partner/dealer/retailer code is "C" + 15 digits (e.g.
+# C101129093100419). This deliberately excludes internal/test/customer codes
+# like CUSTILEKART, OBLTEST6, COUSTMERYASHTILEKA, 1113367, and blanks.
+_DEALER_CODE_RE = re.compile(r"^C\d{15}$", re.IGNORECASE)
+# Real zones only: North-1..4, South-1..2, East-1..2, West. Excludes Employee,
+# Dev Team, Coustmer, Cust, blanks, etc.
+_REAL_ZONE_RE = re.compile(r"^(north|south|east|west)(-\d+)?$", re.IGNORECASE)
+
+
+def is_real_dealer_code(code: str | None) -> bool:
+    return bool(_DEALER_CODE_RE.match((code or "").strip()))
+
+
+def is_real_zone(zone: str | None) -> bool:
+    return bool(_REAL_ZONE_RE.match((zone or "").strip()))
 
 
 def directory_enabled() -> bool:
@@ -63,12 +80,14 @@ def summarize(type_key: str, rows: list[dict], *,
               source: str = "mock",
               truncated: bool = False,
               period: dict | None = None,
-              use_directory: bool | None = None) -> dict:
+              use_directory: bool | None = None,
+              dealers_only: bool = True) -> dict:
     if group_by not in GROUP_BYS:
         group_by = "dealer"
     if use_directory is None:
         use_directory = directory_enabled()
     if use_directory:
+        # Directory mode already restricts to real dealers (the CSV join).
         return _summarize_with_directory(
             type_key, rows, group_by=group_by, zone=zone, branch=branch,
             dealer_code=dealer_code, min_count=min_count, max_count=max_count,
@@ -77,7 +96,8 @@ def summarize(type_key: str, rows: list[dict], *,
     return _summarize_raw(
         type_key, rows, group_by=group_by, zone=zone, branch=branch,
         dealer_code=dealer_code, min_count=min_count, max_count=max_count,
-        top=top, source=source, truncated=truncated, period=period)
+        top=top, source=source, truncated=truncated, period=period,
+        dealers_only=dealers_only)
 
 
 # --------------------------------------------------------------------------
@@ -96,7 +116,8 @@ def _raw_zone_matches(m_zone: str, filt: str) -> bool:
 
 
 def _summarize_raw(type_key, rows, *, group_by, zone, branch, dealer_code,
-                   min_count, max_count, top, source, truncated, period) -> dict:
+                   min_count, max_count, top, source, truncated, period,
+                   dealers_only: bool = True) -> dict:
     notes = []
     # Branch isn't in the API payload - it only exists in the CSV.
     if branch or group_by == "branch":
@@ -111,10 +132,16 @@ def _summarize_raw(type_key, rows, *, group_by, zone, branch, dealer_code,
     zone_of: dict[str, str] = {}
     counted = 0
     null_code = 0
+    excluded_non_dealer = 0
 
     for row in rows:
         code = str(row.get("Merchant_Code") or "").strip()
         mz = str(row.get("m_zone") or "").strip()
+        # Default: count only real channel partners (C+15-digit code) in real
+        # zones (North/South/East/West). Drops internal/test/customer accounts.
+        if dealers_only and not (is_real_dealer_code(code) and is_real_zone(mz)):
+            excluded_non_dealer += 1
+            continue
         if zone and not _raw_zone_matches(mz, zone):
             continue
         if dealer_code and code.upper() != dealer_code:
@@ -147,18 +174,24 @@ def _summarize_raw(type_key, rows, *, group_by, zone, branch, dealer_code,
         "filters": {k: v for k, v in (("zone", zone), ("dealer_code", dealer_code)) if v},
         "total_rows": len(rows),
         "counted_rows": counted,
+        "dealers_only": dealers_only,
+        "excluded_non_dealer_rows": excluded_non_dealer,
         f"matched_{'groups' if group_by == 'zone' else 'dealers'}": len(items),
         "rows": items[:top],
         "samples": [_sample(r) for r in rows[:5]],
         "source": source,
         "truncated": truncated,
     }
-    note = ("API-only mode: no dealer-directory (CSV) cross-reference. Dealers are "
-            "shown by Merchant_Code and the zone the API reports (m_zone); dealer "
-            "names, branch, and inactive/zero-session detection are unavailable (they "
-            "need the CSV).")
-    if null_code:
-        note += f" {null_code} rows had no Merchant_Code."
+    if dealers_only:
+        note = (f"Counting real channel partners only: {counted} rows from dealer "
+                f"codes (C+digits) in real zones (North/South/East/West). Excluded "
+                f"{excluded_non_dealer} rows from internal / test / customer / "
+                f"employee accounts. (Set include_non_dealers=true to include them.) ")
+    else:
+        note = ("Including ALL accounts (internal/test/customer not filtered out). ")
+    note += ("API-only mode: no dealer-directory (CSV) cross-reference, so dealers are "
+             "shown by Merchant_Code and the zone the API reports; dealer names, branch, "
+             "and inactive-dealer detection need the CSV.")
     if notes:
         note += " " + " ".join(notes)
     result["note"] = note
