@@ -535,8 +535,8 @@ _QUICKLOOK_SHARED_PARAMS = {
     "end_date": {"type": "string", "description": "End of the period, inclusive, YYYY-MM-DD."},
     "group_by": {
         "type": "string",
-        "enum": ["dealer", "branch", "zone"],
-        "description": "How to roll up the counts. 'dealer' = one row per dealer (with branch & zone); 'branch' = totals per branch; 'zone' = totals per zone group (North/East/South/West/Enterprise). Default 'dealer'.",
+        "enum": ["dealer", "branch", "zone", "month"],
+        "description": "How to roll up the counts. 'dealer' = one row per dealer (with branch & zone); 'branch' = totals per branch; 'zone' = totals per zone group (North/East/South/West); 'month' = totals per calendar month (a time series - use this for trends and for comparing features across months). Default 'dealer'.",
     },
     "zone": {"type": "string", "description": "Optional filter. Accepts a zone group ('North' matches North-1..North-4) or a specific zone ('East-1'). A trailing 'zone' word is fine ('North zone')."},
     "branch": {"type": "string", "description": "Optional filter to a single branch (e.g. 'N.EAST', 'ROWB')."},

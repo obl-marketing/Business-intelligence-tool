@@ -44,6 +44,26 @@ class QuickLookError(RuntimeError):
     pass
 
 
+# Short-lived in-process cache of fetched rows, keyed by (type, start, end, cap).
+# Makes follow-up questions over the same range (e.g. comparing designs vs
+# quotations vs catalogues) near-instant after the first pull.
+_CACHE: dict = {}
+
+
+def _cache_ttl() -> float:
+    try:
+        return float(os.environ.get("QUICKLOOK_CACHE_TTL", "600"))
+    except ValueError:
+        return 600.0
+
+
+def _concurrency() -> int:
+    try:
+        return max(1, min(16, int(os.environ.get("QUICKLOOK_CONCURRENCY", "6"))))
+    except ValueError:
+        return 6
+
+
 def is_configured() -> bool:
     return bool((os.environ.get("QUICKLOOK_API_TOKEN") or "").strip())
 
@@ -125,24 +145,49 @@ def fetch_rows(type_key: str, start_date: str, end_date: str,
     api_type = TYPES[type_key]["api"]
     cap = max_rows or _row_cap()
 
-    rows: list[dict] = []
-    page = 1
-    truncated = False
-    while True:
-        payload = _post_page(api_type, start_date, end_date, page, MAX_PERPAGE)
-        data = payload.get("data") or []
-        for item in data:
+    # Serve from the short-lived cache so repeated / follow-up questions over the
+    # same type+range don't re-pull thousands of rows.
+    ckey = (api_type, start_date, end_date, cap)
+    hit = _CACHE.get(ckey)
+    if hit and (time.time() - hit[0]) < _cache_ttl():
+        return hit[1]
+
+    def _rows_of(payload: dict) -> list[dict]:
+        out = []
+        for item in payload.get("data") or []:
             src = item.get("source_row") if isinstance(item, dict) else None
-            rows.append(src if isinstance(src, dict) else (item if isinstance(item, dict) else {}))
+            out.append(src if isinstance(src, dict) else (item if isinstance(item, dict) else {}))
+        return out
+
+    # Page 1 tells us whether there's more to fetch.
+    rows = _rows_of(_post_page(api_type, start_date, end_date, 1, MAX_PERPAGE))
+    truncated = False
+    if len(rows) >= MAX_PERPAGE and len(rows) < cap:
+        # Fetch the remaining pages concurrently in waves. We don't know the
+        # total page count (no count endpoint), so we stop the wave that first
+        # returns a short/empty page (that's the last one).
+        from concurrent.futures import ThreadPoolExecutor
+        workers = _concurrency()
+        next_page = 2
+        done = False
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            while not done and len(rows) < cap:
+                batch = list(range(next_page, next_page + workers))
+                for payload in ex.map(
+                        lambda p: _post_page(api_type, start_date, end_date, p, MAX_PERPAGE),
+                        batch):
+                    pr = _rows_of(payload)
+                    rows.extend(pr)
+                    if len(pr) < MAX_PERPAGE:
+                        done = True
+                next_page += workers
         if len(rows) >= cap:
             rows = rows[:cap]
             truncated = True
-            break
-        if len(data) < MAX_PERPAGE:  # last (short) page
-            break
-        page += 1
 
-    return {"rows": rows, "pages": page, "truncated": truncated}
+    result = {"rows": rows, "pages": None, "truncated": truncated}
+    _CACHE[ckey] = (time.time(), result)
+    return result
 
 
 def status() -> dict:
