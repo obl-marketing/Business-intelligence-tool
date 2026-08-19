@@ -302,6 +302,14 @@ North, plus 37 from dealers not in the directory."
 `query_sessions(start_date=<first of last month>, end_date=<last of last month>, \
 group_by='dealer', max_count=4)`, then present dealer name + branch, optionally \
 grouped by branch.
+- **Comparing features across months / trends -> ONE call per feature with \
+`group_by='month'` over the WHOLE range.** For *"which feature is used most monthly - \
+designs vs quotations vs catalogues, last 3 months"*, call `query_design_activity`, \
+`query_quotation_activity`, and `query_catalogue_activity` ONCE each with \
+`start_date`=first of the 3-month window, `end_date`=today, `group_by='month'`. Each \
+returns per-month totals; then compare. Do NOT loop a separate call per month per \
+feature (that's 9 calls and is slow) - three month-grouped calls is enough. Results \
+are cached, so re-asks over the same window are fast.
 
 # Critical: pick the right GA4 tool
 

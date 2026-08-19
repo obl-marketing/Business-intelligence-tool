@@ -24,7 +24,15 @@ from collections import defaultdict
 
 import dealer_directory
 
-GROUP_BYS = ("dealer", "branch", "zone")
+GROUP_BYS = ("dealer", "branch", "zone", "month")
+
+
+def _date_field(type_key: str) -> str:
+    try:
+        import quicklook_client
+        return quicklook_client.TYPES.get(type_key, {}).get("date_field", "date")
+    except Exception:
+        return "date"
 
 # A real channel-partner/dealer/retailer code is "C" + 15 digits (e.g.
 # C101129093100419). This deliberately excludes internal/test/customer codes
@@ -136,6 +144,7 @@ def _summarize_raw(type_key, rows, *, group_by, zone, branch, dealer_code,
             group_by = "dealer"
 
     dealer_code = (dealer_code or "").strip().upper() or None
+    date_field = _date_field(type_key)
     per_key: dict[str, int] = defaultdict(int)
     zone_of: dict[str, str] = {}
     counted = 0
@@ -159,6 +168,8 @@ def _summarize_raw(type_key, rows, *, group_by, zone, branch, dealer_code,
             null_code += 1
         if group_by == "zone":
             per_key[mz or "(no zone)"] += 1
+        elif group_by == "month":
+            per_key[str(row.get(date_field) or "")[:7] or "(no date)"] += 1
         else:  # dealer, keyed by Merchant_Code
             key = code or "(no code)"
             per_key[key] += 1
@@ -170,9 +181,14 @@ def _summarize_raw(type_key, rows, *, group_by, zone, branch, dealer_code,
             continue
         if group_by == "zone":
             items.append({"zone": k, "count": c})
+        elif group_by == "month":
+            items.append({"month": k, "count": c})
         else:
             items.append({"dealer_code": k, "m_zone": zone_of.get(k, ""), "count": c})
-    items.sort(key=lambda r: r["count"], reverse=(max_count is None))
+    if group_by == "month":
+        items.sort(key=lambda r: r["month"])            # chronological
+    else:
+        items.sort(key=lambda r: r["count"], reverse=(max_count is None))
 
     result = {
         "mode": "api_only",
@@ -184,7 +200,7 @@ def _summarize_raw(type_key, rows, *, group_by, zone, branch, dealer_code,
         "counted_rows": counted,
         "dealers_only": dealers_only,
         "excluded_non_dealer_rows": excluded_non_dealer,
-        f"matched_{'groups' if group_by == 'zone' else 'dealers'}": len(items),
+        f"matched_{'groups' if group_by in ('zone', 'month') else 'dealers'}": len(items),
         "rows": items[:top],
         "samples": [_sample(r) for r in rows[:5]],
         "source": source,
