@@ -33,10 +33,18 @@ _DEALER_CODE_RE = re.compile(r"^C\d{15}$", re.IGNORECASE)
 # Real zones only: North-1..4, South-1..2, East-1..2, West. Excludes Employee,
 # Dev Team, Coustmer, Cust, blanks, etc.
 _REAL_ZONE_RE = re.compile(r"^(north|south|east|west)(-\d+)?$", re.IGNORECASE)
+# Internal EMPLOYEE codes are numeric and start with "11" (e.g. 1113573). These
+# are a separate population from dealers and must never be mixed into dealer/
+# user answers.
+_EMPLOYEE_CODE_RE = re.compile(r"^11\d+$")
 
 
 def is_real_dealer_code(code: str | None) -> bool:
     return bool(_DEALER_CODE_RE.match((code or "").strip()))
+
+
+def is_employee_code(code: str | None) -> bool:
+    return bool(_EMPLOYEE_CODE_RE.match((code or "").strip()))
 
 
 def is_real_zone(zone: str | None) -> bool:
