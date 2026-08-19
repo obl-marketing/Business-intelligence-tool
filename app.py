@@ -751,7 +751,10 @@ if prompt:
                     # Close current text region, open a status box for the tool
                     text_area = st.empty()
                     accumulated_text = ""
-                    placeholder = st.status(f"Gathering evidence: `{event['name']}`...", expanded=False)
+                    placeholder = st.status(
+                        f"Gathering data — `{event['name']}` · large date ranges can "
+                        "take a little while, please keep this window open…",
+                        expanded=False)
                     call_index = len(display_blocks)
                     tool_status_by_call[call_index] = placeholder
                     display_blocks.append({
