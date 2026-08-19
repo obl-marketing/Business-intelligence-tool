@@ -544,6 +544,7 @@ _QUICKLOOK_SHARED_PARAMS = {
     "min_count": {"type": "integer", "description": "Optional: only include dealers/branches/zones with AT LEAST this many activities (inclusive)."},
     "max_count": {"type": "integer", "description": "Optional: only include those with AT MOST this many (inclusive). For 'fewer than 5' pass max_count=4. By DEFAULT this counts only dealers who did at least 1 (so 'fewer than 5' returns dealers with 1-4) - dealers with ZERO activity are a separate 'inactive/never used' group and are NOT included unless include_zero=true."},
     "include_zero": {"type": "boolean", "description": "Default false. Set true ONLY when the user explicitly wants dealers with NO activity - 'inactive', 'never used', 'haven't used the app', 'zero sessions', 'dormant'. Then dealers with 0 are included; combine with max_count=0 to list exactly the dealers who did nothing. Do NOT set this for a plain 'fewer than N' question."},
+    "include_non_dealers": {"type": "boolean", "description": "Default false. By default only REAL channel partners are counted: Merchant_Code = C+15 digits, in a real zone (North/South/East/West). Internal, test, developer, employee and customer accounts (e.g. CUSTILEKART, OBLTEST6, Employee/Dev Team zones) are excluded. Set true ONLY if the user explicitly asks to include those internal/test accounts."},
     "top": {"type": "integer", "description": "Max rows to return (default 100). The full matched total is reported separately."},
 }
 
@@ -651,6 +652,7 @@ def _run_quicklook_tool(name: str, args: dict[str, Any]) -> str:
         dealer_code=args.get("dealer_code"),
         min_count=_int("min_count"), max_count=_int("max_count"),
         include_zero=bool(args.get("include_zero", False)),
+        dealers_only=not bool(args.get("include_non_dealers", False)),
         top=int(args.get("top", 100)),
         source=source, truncated=truncated, period=period,
     )

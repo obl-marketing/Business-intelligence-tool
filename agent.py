@@ -165,6 +165,12 @@ def _quicklook_mode_note() -> str:
         if not quicklook_analytics.directory_enabled():
             return (
                 "\n**API-ONLY MODE IS ON - do NOT cross-reference the dealer CSV.** "
+                "By DEFAULT only real channel partners are counted: Merchant_Code = "
+                "C+15 digits, in a real zone (North/South/East/West). Internal, test, "
+                "developer, employee and customer accounts (CUSTILEKART, OBLTEST6, "
+                "Employee / Dev Team / Coustmer zones, blank codes) are EXCLUDED - this "
+                "is correct; do not add them back unless the user explicitly asks for "
+                "internal/test accounts (then pass include_non_dealers=true). "
                 "Answer purely from the QuickLook API. Filter zones by the zone the API "
                 "returns on each row (`m_zone`), and group dealers by `Merchant_Code` "
                 "(show dealer CODES, not names - names and branch come only from the CSV "
