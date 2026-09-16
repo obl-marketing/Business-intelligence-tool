@@ -127,6 +127,8 @@ def _classify_url(u: str) -> str:
     path = urlparse(u).path.strip("/").lower()
     if not path:
         return "homepage"
+    if "tile-collection" in path or "tile-collections" in path:
+        return "collection"
     if any(k in path for k in ("blog", "trends", "article", "news")):
         return "blog"
     if any(k in path for k in ("store", "dealer", "contact", "about", "locator")):
@@ -213,6 +215,98 @@ def resolve_page_url(query: str, limit: int = 8) -> dict:
             "category/PLP page (type plp) reflects category demand; a PDP reflects one "
             "product. If several match, the category/PLP page is usually the right one."
         ),
+    }
+
+
+def extract_filter_links(url_or_path: str, param_contains: str | None = None,
+                         name_contains: str | None = None, limit: int = 60) -> dict:
+    """Render a listing/PLP page and read its FILTER options, mapping each human
+    label (e.g. 'Inspire XL') to the real filter URL + query value.
+
+    This is how STARS handles filters/collections whose URL does NOT contain the
+    readable name: the filter link is something like
+    `/tiles?tile_collections=1234`, so we render the page (JS included) and pull
+    each filter anchor's visible text + href. That turns "Inspire XL" into the
+    exact `?tile_collections=<value>` the site (and GA4's pagePath) uses.
+
+    - `param_contains`: only keep filters whose query key contains this (e.g.
+      'tile_collection' for collections, 'color', 'size'). Omit to see all filters.
+    - `name_contains`: only keep options whose label contains this (e.g. 'inspire').
+    Returns each option with `url`, `page_path`, `param`, `value`, and
+    `ga4_page_path_contains` (the distinctive `param=value` substring to filter GA4
+    pagePath by)."""
+    from urllib.parse import urlparse, urljoin, parse_qsl
+
+    url = _resolve_url(url_or_path)
+    fetched = _fetch(url)
+    if fetched.get("error"):
+        return {"url": url, **fetched}
+
+    final_url = fetched["final_url"]
+    soup = BeautifulSoup(fetched["html"], "lxml")
+
+    seen: set[tuple] = set()
+    options: list[dict] = []
+    params_seen: dict[str, int] = {}
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if href.startswith(("mailto:", "tel:", "javascript:")):
+            continue
+        absolute = urljoin(final_url, href)
+        query = urlparse(absolute).query
+        if not query:
+            continue
+        pairs = parse_qsl(query, keep_blank_values=False)
+        if not pairs:
+            continue
+        label = (a.get_text(strip=True) or a.get("aria-label") or "").strip()
+        if not label or len(label) > 60:
+            continue
+        for key, value in pairs:
+            params_seen[key] = params_seen.get(key, 0) + 1
+            if param_contains and param_contains.lower() not in key.lower():
+                continue
+            if name_contains and name_contains.lower() not in label.lower():
+                continue
+            path = urlparse(absolute).path or "/"
+            dedup = (label.lower(), key, value)
+            if dedup in seen:
+                continue
+            seen.add(dedup)
+            options.append({
+                "label": label,
+                "param": key,
+                "value": value,
+                "url": absolute,
+                "page_path": f"{path}?{key}={value}",
+                "ga4_page_path_contains": f"{key}={value}",
+            })
+            if len(options) >= limit:
+                break
+        if len(options) >= limit:
+            break
+
+    note = None
+    if not options:
+        if param_contains:
+            note = (f"No filter links matching '{param_contains}' were found on this "
+                    f"page. The filters may be rendered client-side without <a href> "
+                    f"links, or the param name differs - the params seen here were: "
+                    f"{sorted(params_seen)[:20]}. Try a different listing page or omit "
+                    "param_contains to list everything.")
+        else:
+            note = ("No querystring filter links found on this page. Try a category/PLP "
+                    "page that has a filter sidebar (e.g. /tiles/floor-tiles).")
+    return {
+        "url": url,
+        "final_url": final_url,
+        "render_mode": fetched.get("render_mode"),
+        "param_contains": param_contains,
+        "name_contains": name_contains,
+        "params_available": dict(sorted(params_seen.items(), key=lambda kv: kv[1], reverse=True)[:25]),
+        "filters": options,
+        "filter_count": len(options),
+        "note": note,
     }
 
 

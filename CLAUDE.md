@@ -53,7 +53,16 @@ Therefore the tools **self-discover** the schema instead of assuming standard na
   with a legacy standard-event fallback. Do NOT reintroduce hard-coded event names.
 - `frontend_audit.resolve_page_url()` (tool `resolve_page_url`) turns a plain page name
   ("flexi tiles") into the real URL + GA4 `page_path`, so users never paste links; the
-  audit and GA4 then run on the SAME page.
+  audit and GA4 then run on the SAME page. `_classify_url` labels `/tiles/tile-collection/…`
+  as `collection` and `/tiles/…` as `plp`.
+- **Collections & filters:** a collection (e.g. "Inspire XL") is TWO things — a
+  collection page under `/tiles/tile-collection/<name>` (name in the URL → resolvable),
+  and a filter `/tiles?tile_collections=<value>` (name NOT in the URL). For the filter,
+  `frontend_audit.extract_filter_links()` (tool `find_filters`) renders a listing/PLP
+  page and maps each human label → its real filter URL + `param=value`, returning
+  `ga4_page_path_contains` (the `tile_collections=<value>` substring) to scope GA4.
+  Always measure BOTH the collection page and the filter, and be honest if GA4 strips
+  query strings from pagePath (then filter-level traffic isn't measurable there).
 - `planner.preflight()` runs before any API call: it resolves URLs + discovers the real
   schema and drafts a fetch plan, injected into the system prompt. Fully guarded.
 
