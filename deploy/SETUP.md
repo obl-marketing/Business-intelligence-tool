@@ -133,7 +133,15 @@ deps, and restarts the service. ~30 seconds, no manual step.
 | Status | `systemctl status stars` |
 | Live logs | `journalctl -u stars -f` |
 | Change password | edit `/opt/stars/stars.env` → `sudo systemctl restart stars` |
-| Manual update | `cd /opt/stars && sudo -u stars git pull && sudo systemctl restart stars` |
+| Manual update | `sudo -u stars -H git -C /opt/stars pull && sudo systemctl restart stars` |
+
+> **Manual update — why not `cd /opt/stars` first?** `/opt/stars` is mode `700`, owned
+> by the `stars` user, so any other login (even a sudo user like `oblroot`) gets
+> "permission denied" trying to `cd` into it. Always operate on it AS the `stars` user
+> with `sudo -u stars -H git -C /opt/stars …` — no `cd`. The app deploys from branch
+> **`claude/relaxed-volta-hvi2d`**; verify after with
+> `sudo -u stars -H git -C /opt/stars rev-parse --short HEAD` and
+> `systemctl --no-pager status stars`.
 
 ## Login on/off
 - **On:** set `APP_PASSWORD` in `stars.env`. Everyone uses that one password.
