@@ -230,7 +230,40 @@ Light questions (single month, single feature, a quick lookup, a follow-up on \
 already-fetched data) need NO warning - just answer. Only warn when it's genuinely \
 heavy, and keep it to one friendly sentence - don't over-warn.
 
-# Frontend audit - this is your UX/UI/conversion superpower
+# Website & page questions - resolve the URL YOURSELF, then combine audit + GA4
+
+Many users here are non-technical (e.g. a category head checking product/category \
+demand). They will name a page in plain words - "how's engagement on my flexi tile \
+page", "is there demand for wall tiles", "how's the bathroom tiles category doing" - \
+and they should NEVER have to paste a URL. When a question references a page, product, \
+or category BY NAME, your FIRST step is `resolve_page_url` with the user's own words \
+(e.g. query="flexi tiles"). It returns the real URL(s) and the `page_path` GA4 uses, \
+each labelled category/PLP vs product (PDP). For "demand for X" / category questions, \
+pick the category/PLP candidate (its path contains `/tiles/`); for one specific \
+product, pick the PDP.
+
+Then, EVERY TIME, run the two sides together and cross-reference them:
+1. **GA4 = the numbers.** Feed the resolved `page_path` into `query_page_metrics` \
+(active users, page views, avg engagement time per user, engagement rate, bounce) and \
+use `query_pages_engagement_ranked` for context (how this page ranks vs others). Add \
+`query_traffic_over_time`-style trend if they ask "is demand growing".
+2. **audit_page(url) = the why.** Render the resolved page to see structure, CTAs, \
+forms, trust signals, popups.
+3. **Tie them together in plain language** a non-analyst gets: "Your flexi tiles \
+category page pulled 4,200 users last month with 48s engagement - solid demand - but \
+the page has no reviews and the enquiry form is 7 fields, which is why only 1.2% \
+enquire. Add reviews and cut the form to 3 fields."
+
+Do NOT guess a `page_path_contains` string from the user's phrasing and hope it \
+matches - resolve it first so GA4 and the audit point at the SAME real page. If \
+`resolve_page_url` returns nothing, THEN fall back to `query_pageviews` group_by=page \
+(to see real paths) or `list_site_pages`.
+
+Straight GA4 questions with no page reference ("how many users in May", "which \
+channel converts best") - just answer them directly with the GA4 tools; the URL step \
+is only for page/product/category questions.
+
+# Frontend audit details
 
 GA4 tells you WHAT users do; `audit_page` tells you WHY. The user's site URL is \
 {site_base_url_note}. For UX/UI/product/conversion questions, your standard play is:
@@ -369,12 +402,29 @@ use `query_traffic_by_country`. Never tell the user country filtering is unavail
 these tools do it. ("Indian organic traffic" = query_acquisition_by_channel with \
 country="India", then read the Organic Search row.)
 
-# Adapt to THIS site's event names - never assume the standard protocol
+# Adapt to THIS site's event names - discover them, never assume, never rely on memorised definitions
 
-Every GA4 property names its events differently. This site may call a product view \
-"product view", "view_product", or something custom - NOT necessarily the standard \
-"view_item". You must adapt to the real data, never force the standard e-commerce \
-naming.
+This property does NOT use the standard GA4 protocol. It uses custom event names \
+(often prefixed `mkt-...`) and custom dimensions. NEVER assume standard names like \
+`view_item`, `form_view`, `popup_view`, `form_submit` - they do not exist here and \
+will return empty. Figure out the real names yourself:
+
+- **`discover_ga4_schema(start_date, end_date)`** returns this property's REAL event \
+names (ranked by volume) and its registered custom dimensions (e.g. \
+`customEvent:popup_id`, `customEvent:action`). Call it whenever you're unsure which \
+event/dimension represents something, BEFORE guessing. When a pre-flight grounding \
+block is present at the top of these instructions, the real events are already listed \
+there - use them.
+- **Forms and popups auto-adapt.** `query_popup_breakdown` and `query_form_breakdown` \
+now self-configure: they discover the id dimension (`customEvent:popup_id`) and action \
+dimension (`customEvent:action` = viewed/closed/submitted) and derive views/closes/\
+submits from the real single lifecycle event - you do NOT need to know the event name. \
+On this site forms and popups share `popup_id` (e.g. `ask-tile-expert`, \
+`book-a-consultation`, `tareeq-figurine`), so use these tools for BOTH.
+- **Don't depend on written event definitions.** Any event definition in the \
+knowledge base may be stale, partial, or contradictory. Treat the LIVE discovered \
+schema as the single source of truth; if a note and the live data disagree, trust the \
+live data and tell the user what you found.
 
 Rules:
 1. **A step showing 0, or an "unmatched_stages" note, is a signal to investigate - \
@@ -562,17 +612,33 @@ def chat(
     provider = (provider or os.environ.get("LLM_PROVIDER", "anthropic")).lower()
     attachments = attachments or []
     datasets = datasets or []
+
+    # Pre-flight planner: ground THIS turn with resolved page URLs + the property's
+    # real GA4 events/dimensions (and a Gemini fetch plan) before any API is hit.
+    # Best-effort - returns "" on any problem, so the chat is never blocked by it.
+    preflight_note = ""
+    last_user = next((m["content"] for m in reversed(messages)
+                      if m.get("role") == "user" and isinstance(m.get("content"), str)), "")
+    if last_user:
+        try:
+            import planner
+            preflight_note = planner.preflight(last_user, provider=provider,
+                                               api_key=api_key, model=model)
+        except Exception:
+            preflight_note = ""
+
     if provider == "gemini":
-        yield from _chat_gemini(messages, model, api_key, attachments, datasets)
+        yield from _chat_gemini(messages, model, api_key, attachments, datasets, preflight_note)
     else:
-        yield from _chat_anthropic(messages, model, api_key, attachments, datasets)
+        yield from _chat_anthropic(messages, model, api_key, attachments, datasets, preflight_note)
 
 
 # ===========================================================
 # Anthropic Claude
 # ===========================================================
 
-def _chat_anthropic(messages, model, api_key, attachments=None, datasets=None) -> Iterator[dict]:
+def _chat_anthropic(messages, model, api_key, attachments=None, datasets=None,
+                    preflight_note="") -> Iterator[dict]:
     import anthropic
 
     import base64
@@ -581,6 +647,7 @@ def _chat_anthropic(messages, model, api_key, attachments=None, datasets=None) -
     datasets = datasets or []
     client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
     model = model or os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
+    system_text = system_prompt() + (preflight_note or "")
 
     working_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
 
@@ -635,7 +702,7 @@ def _chat_anthropic(messages, model, api_key, attachments=None, datasets=None) -
         response = client.messages.create(
             model=model,
             max_tokens=8192,
-            system=system_prompt(),
+            system=system_text,
             tools=ALL_TOOLS,
             messages=working_messages,
         )
@@ -694,7 +761,8 @@ def _claude_schema_to_gemini(schema: dict) -> dict:
     return schema
 
 
-def _chat_gemini(messages, model, api_key, attachments=None, datasets=None) -> Iterator[dict]:
+def _chat_gemini(messages, model, api_key, attachments=None, datasets=None,
+                 preflight_note="") -> Iterator[dict]:
     from google import genai
     from google.genai import types as gt
 
@@ -744,7 +812,7 @@ def _chat_gemini(messages, model, api_key, attachments=None, datasets=None) -> I
         contents[-1]["parts"] = extra_parts + contents[-1]["parts"]
 
     config = gt.GenerateContentConfig(
-        system_instruction=system_prompt(),
+        system_instruction=system_prompt() + (preflight_note or ""),
         tools=tools_config,
     )
 

@@ -356,8 +356,11 @@ with st.sidebar:
     st.divider()
     st.subheader("Try asking")
     examples = [
+        "How is the engagement on my flexi tile page?",
+        "Is there demand for wall tiles? Check traffic and engagement.",
         "How is my website traffic doing in the last 30 days?",
         "Break down my traffic by channel.",
+        "How are my enquiry forms performing (ask-tile-expert, book-a-consultation)?",
         "Analyse my user journey and tell me where there's a drop-off.",
         "Audit my homepage and tell me what's hurting conversion.",
         "Find my highest-bounce page, audit it, and tell me how to fix it.",

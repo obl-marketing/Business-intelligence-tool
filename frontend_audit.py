@@ -56,18 +56,19 @@ _CHATBOT_SIGNATURES = {
 }
 
 
-def list_site_pages(limit: int = 150) -> dict:
-    """Discover the site's pages from its sitemap so an audit can span the whole
-    site. Returns a URL sample plus a count of pages per top-level section, so the
-    agent can pick one of each key page type (homepage, PLP, product, contact,
-    blog) to audit."""
-    import xml.etree.ElementTree as ET
-    from urllib.parse import urlparse
+# Cache the sitemap URL list per base URL for the process lifetime - the
+# sitemap rarely changes within a session and re-fetching it on every
+# resolve/list call is slow.
+_SITEMAP_CACHE: dict[str, list[str]] = {}
 
-    base = os.environ.get("SITE_BASE_URL", "").rstrip("/")
-    if not base:
-        return {"error": "SITE_BASE_URL isn't set, so I can't locate the sitemap. "
-                         "Set it in secrets, or give me the specific page URLs to audit."}
+
+def _fetch_sitemap_urls(base: str) -> list[str]:
+    """Fetch + flatten the site's sitemap(s) into a de-duplicated URL list.
+    Cached per base URL. Returns [] if no sitemap is reachable."""
+    if base in _SITEMAP_CACHE:
+        return _SITEMAP_CACHE[base]
+
+    import xml.etree.ElementTree as ET
 
     headers = {"User-Agent": _UA, "Accept": "application/xml,text/xml,*/*",
                **_allowlist_headers()}
@@ -101,23 +102,137 @@ def list_site_pages(limit: int = 150) -> dict:
         found = _locs(text)
         children = [u for u in found if u.lower().endswith(".xml")]
         page_urls += [u for u in found if not u.lower().endswith(".xml")]
-        for sm in children[:25]:  # cap child sitemaps
+        for sm in children[:50]:  # cap child sitemaps
             t2 = _get(sm)
             if t2:
                 page_urls += [u for u in _locs(t2) if not u.lower().endswith(".xml")]
         if page_urls:
             break
 
-    if not page_urls:
-        return {"note": "Couldn't read a sitemap at the usual paths. Give me the key "
-                        "page URLs to audit (homepage, a category page, a product page, "
-                        "contact, a blog post) and I'll audit those directly."}
-
     seen, urls = set(), []
     for u in page_urls:
         if u not in seen:
             seen.add(u)
             urls.append(u)
+    _SITEMAP_CACHE[base] = urls
+    return urls
+
+
+def _classify_url(u: str) -> str:
+    """Best-effort page-type label from the URL shape.
+
+    On this site PLP / category pages live under '/tiles/' (e.g.
+    '/tiles/floor-tiles'); product detail pages (PDPs) do NOT contain '/tiles/'
+    and are single deep slugs. Blogs/stores/contact are matched by keyword."""
+    path = urlparse(u).path.strip("/").lower()
+    if not path:
+        return "homepage"
+    if any(k in path for k in ("blog", "trends", "article", "news")):
+        return "blog"
+    if any(k in path for k in ("store", "dealer", "contact", "about", "locator")):
+        return "info"
+    if path.startswith("tiles/") or "/tiles/" in ("/" + path):
+        # /tiles/... with one segment after is the category PLP; deeper is a sub-PLP
+        segs = path.split("/")
+        return "plp" if len(segs) <= 2 else "sub_plp"
+    return "pdp"
+
+
+def resolve_page_url(query: str, limit: int = 8) -> dict:
+    """Turn a plain-language page reference ('flexi tiles', 'the floor tile
+    category', 'bathroom wall tiles page') into the REAL URL(s) on the site,
+    so the user never has to paste a link. Ranks sitemap URLs by how well their
+    slug matches the query words, and labels each as a category/PLP page vs a
+    product (PDP) vs blog/info.
+
+    Returns candidates with both the full URL and the `page_path` (what GA4 uses
+    for pagePath filtering), so the caller can immediately pull GA4 metrics for
+    the resolved page and/or audit it - this is how the audit tool and GA4 stay
+    in sync for website questions."""
+    base = os.environ.get("SITE_BASE_URL", "").rstrip("/")
+    if not base:
+        return {"error": "SITE_BASE_URL isn't set, so I can't resolve page names to "
+                         "URLs. Set it in secrets, or pass a path/URL directly."}
+
+    urls = _fetch_sitemap_urls(base)
+    if not urls:
+        return {"query": query,
+                "note": "Couldn't read the sitemap to resolve that page name. Give me "
+                        "the URL or a distinctive part of the path and I'll use it."}
+
+    # Tokenize the query into meaningful words (drop filler like 'page','the').
+    stop = {"page", "pages", "the", "my", "for", "of", "on", "a", "an", "and",
+            "tile", "tiles", "category", "product", "url", "link", "section"}
+    raw_tokens = re.findall(r"[a-z0-9]+", query.lower())
+    tokens = [t for t in raw_tokens if t not in stop] or raw_tokens
+
+    scored = []
+    for u in urls:
+        slug = urlparse(u).path.strip("/").lower()
+        slug_words = set(re.findall(r"[a-z0-9]+", slug))
+        # score: matched query tokens, weighted; exact whole-phrase match boosts.
+        matched = sum(1 for t in tokens if t in slug or t in slug_words)
+        if not matched:
+            continue
+        score = matched / max(len(tokens), 1)
+        # Prefer shorter, cleaner paths (a category page over a deep variant).
+        depth_penalty = slug.count("/") * 0.03
+        # Reward when every token appears.
+        if matched == len(tokens):
+            score += 0.3
+        scored.append((score - depth_penalty, u))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[:limit]
+    if not top:
+        return {"query": query, "tokens_used": tokens,
+                "note": f"No sitemap URL matched '{query}'. Try different wording, or "
+                        "call list_site_pages to see the site's sections."}
+
+    candidates = []
+    for score, u in top:
+        candidates.append({
+            "url": u,
+            "page_path": urlparse(u).path or "/",
+            "type": _classify_url(u),
+            "match_score": round(min(score, 1.0), 2),
+        })
+    # Group so the agent can pick the right altitude (category vs product).
+    plp = [c for c in candidates if c["type"] in ("plp", "sub_plp")]
+    pdp = [c for c in candidates if c["type"] == "pdp"]
+    return {
+        "query": query,
+        "tokens_used": tokens,
+        "best_match": candidates[0],
+        "category_or_plp_pages": plp,
+        "product_pages": pdp[:5],
+        "all_candidates": candidates,
+        "note": (
+            "Use `page_path` with GA4 tools (query_page_metrics page_path_contains, "
+            "or exact=true for one row) and/or audit_page(url). For 'demand for X', a "
+            "category/PLP page (type plp) reflects category demand; a PDP reflects one "
+            "product. If several match, the category/PLP page is usually the right one."
+        ),
+    }
+
+
+def list_site_pages(limit: int = 150) -> dict:
+    """Discover the site's pages from its sitemap so an audit can span the whole
+    site. Returns a URL sample plus a count of pages per top-level section, so the
+    agent can pick one of each key page type (homepage, PLP, product, contact,
+    blog) to audit."""
+    from urllib.parse import urlparse
+
+    base = os.environ.get("SITE_BASE_URL", "").rstrip("/")
+    if not base:
+        return {"error": "SITE_BASE_URL isn't set, so I can't locate the sitemap. "
+                         "Set it in secrets, or give me the specific page URLs to audit."}
+
+    urls = _fetch_sitemap_urls(base)
+    if not urls:
+        return {"note": "Couldn't read a sitemap at the usual paths. Give me the key "
+                        "page URLs to audit (homepage, a category page, a product page, "
+                        "contact, a blog post) and I'll audit those directly."}
 
     sections: dict[str, int] = {}
     for u in urls:

@@ -178,6 +178,50 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "name": "resolve_page_url",
+        "description": (
+            "Turn a plain-language page reference into the REAL URL(s) on the site - "
+            "so the user NEVER has to paste a link. Call this FIRST for any question "
+            "about a specific page, product, or category by name (e.g. 'engagement on "
+            "my flexi tile page', 'demand for wall tiles', 'how's the bathroom tiles "
+            "category doing'). Pass the user's words as `query` (e.g. 'flexi tiles'). "
+            "It returns ranked candidates, each with the full `url` AND the `page_path` "
+            "GA4 uses, labelled as a category/PLP page vs a product (PDP) vs blog/info. "
+            "Then feed `page_path` into the GA4 page tools (query_page_metrics) and/or "
+            "audit_page(url) - this is how the audit and GA4 stay in sync. For 'demand "
+            "for X', prefer the category/PLP candidate. Needs SITE_BASE_URL set."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The page/product/category in the user's own words, e.g. 'flexi tiles', 'floor tile category'."},
+                "limit": {"type": "integer", "description": "Max candidate URLs (default 8)."},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "discover_ga4_schema",
+        "description": (
+            "Discover what THIS GA4 property actually tracks: its real event names "
+            "(ranked by volume) and its registered custom dimensions (e.g. "
+            "customEvent:popup_id, customEvent:action). Use this whenever you're unsure "
+            "which event or dimension represents something (a form, a popup, a click, a "
+            "funnel step) BEFORE guessing standard names - this site does NOT use the "
+            "standard GA4 protocol. The form/popup tools already auto-adapt, but call "
+            "this to map any custom question (e.g. 'similar tiles clicks', 'try in my "
+            "room clicks') to the real event name."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
     # ---------- GA4 Acquisition / Engagement (matches Reports, not event sums) ----------
     {
         "name": "query_traffic_summary",
@@ -383,13 +427,16 @@ TOOL_SCHEMAS = [
     {
         "name": "query_popup_breakdown",
         "description": (
-            "Per-popup analytics: views, closes (rage-quits), submits, submit-rate "
-            "and close-rate per (popup_id, page_path). Uses popup_view / popup_close "
-            "/ popup_submit family of events with the customEvent:popup_id custom "
-            "dimension. Use this for ANY question about popups - which popup converts "
-            "best, which is being closed most, which page a popup performs best on, "
-            "etc. Supports filtering to one popup_id or page substring. If popup_id "
-            "is '(unknown)' for every row, surface the setup hint to the user."
+            "Per-popup / lead-form analytics: views, closes, submits, submit-rate and "
+            "close-rate per (popup_id, page_path). AUTO-ADAPTS to how the property "
+            "tracks this - it discovers the real id dimension (customEvent:popup_id) "
+            "and action dimension (customEvent:action = viewed/closed/submitted), so it "
+            "works on sites that fire a single lifecycle event (e.g. mkt-form-event) "
+            "rather than separate popup_view/popup_submit events. On THIS site forms "
+            "and popups share popup_id, so this tool also answers form questions by "
+            "popup_id (e.g. ask-tile-expert, book-a-consultation, tareeq-figurine). The "
+            "result reports which events/dimensions it used. Filter to one popup_id or "
+            "a page substring."
         ),
         "input_schema": {
             "type": "object",
@@ -405,11 +452,14 @@ TOOL_SCHEMAS = [
     {
         "name": "query_form_breakdown",
         "description": (
-            "Targeted form analytics: views, starts, submits, submit-rate per (form_id, "
-            "page_path) combination. Uses the form_view / form_start / form_submit events "
-            "with the customEvent:form_id custom dimension. Use this for questions like "
-            "'how is the ask-the-tile-expert form performing on the floor tile category "
-            "page'. Supports filtering to a specific form_id or page substring."
+            "Targeted form analytics: views, submits, submit-rate per (form_id, "
+            "page_path). AUTO-ADAPTS to the property - it discovers the real id "
+            "dimension (customEvent:form_id or customEvent:popup_id) and action "
+            "dimension (viewed/closed/submitted) instead of assuming form_view/"
+            "form_submit events. Use for 'how is the ask-tile-expert form performing on "
+            "the floor tile category page'. On this site form_id maps to popup_id "
+            "values like ask-tile-expert, book-a-consultation, tareeq-figurine. Filter "
+            "to a specific form_id or page substring."
         ),
         "input_schema": {
             "type": "object",
@@ -808,6 +858,23 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
             import frontend_audit
             data = frontend_audit.list_site_pages(limit=int(args.get("limit", 150)))
             return json.dumps(data)
+
+        if name == "resolve_page_url":
+            import frontend_audit
+            data = frontend_audit.resolve_page_url(
+                args["query"], limit=int(args.get("limit", 8)))
+            return json.dumps(data)
+
+        if name == "discover_ga4_schema":
+            if not _ga4_live():
+                return json.dumps({
+                    "note": "Schema discovery needs the live GA4 connection. In demo "
+                            "mode, event names are the standard synthetic set "
+                            "(session_start, view_item, add_to_cart, purchase, "
+                            "form_view, form_submit, ...)."
+                })
+            return json.dumps(ga4_client.discover_schema(
+                args["start_date"], args["end_date"]))
 
         # ---------- GA4 Reports-aligned (acquisition / engagement) ----------
         if name == "query_traffic_summary":

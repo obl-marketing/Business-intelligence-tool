@@ -66,13 +66,37 @@ Open http://localhost:8501 in your browser.
 - **`tools.py`** - GA4 tool definitions and dispatcher
 - **`mock_data.py`** - Realistic synthetic GA4 data (Mar-Jun 2026)
 
+### How website / page questions work (no URL needed)
+
+Users name a page in plain words — *"how's engagement on my flexi tile page?"* — and
+never paste a link. On these questions the tool:
+
+1. **Pre-flight planner** (`planner.py`) — before hitting any API, a Gemini pre-call
+   grounds the turn: it resolves the page name to real URLs and discovers the
+   property's real GA4 events + custom dimensions, then drafts a concrete fetch plan.
+2. **`resolve_page_url`** — turns *"flexi tiles"* into the real URL(s) and the GA4
+   `page_path`, labelled category/PLP vs product (PDP).
+3. **GA4 + audit in sync** — pulls `query_page_metrics` for the resolved path and
+   `audit_page` for the same URL, then explains demand + the "why" in plain language.
+
+Event names are **auto-discovered**, never hard-coded: this property fires custom
+events (e.g. a single `mkt-form-event` with `customEvent:popup_id` + `customEvent:action`),
+so the form/popup tools self-configure from the live schema instead of assuming
+standard GA4 names.
+
 The agent has these tools:
+
+**Website resolution & schema**
+- `resolve_page_url` - plain-language page name → real URL(s) + GA4 `page_path`
+- `discover_ga4_schema` - the property's real event names + custom dimensions
+- `list_site_pages` - sitemap discovery for site-wide audits
 
 **Google Analytics 4**
 - `query_pageviews` - traffic over time or by page
 - `query_events` - GA4 events with counts and unique users
 - `analyze_user_journey` - funnel with drop-off at each step
 - `query_top_products` - product views, add-to-cart, purchases, revenue
+- `query_form_breakdown` / `query_popup_breakdown` - auto-adapting lead-form/popup analytics
 - `query_form_performance` - lead form views, submissions, conversion rates
 
 **Google Ads**

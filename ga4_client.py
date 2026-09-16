@@ -343,6 +343,22 @@ def form_performance(start: str, end: str) -> list[dict]:
             "form_submissions": subs,
             "conversion_rate_pct": round(subs / starts * 100, 2) if starts else 0.0,
         })
+
+    # This property may not fire the standard form_* events at all (it uses a
+    # single lifecycle event with popup_id/action). If the standard path found
+    # nothing, fall back to the adaptive engine so we still return real forms.
+    if not out:
+        adaptive = adaptive_lead_breakdown(start, end)
+        for r in adaptive.get("rows", []):
+            out.append({
+                "form_id": r.get("id", "(form)"),
+                "form_location": r.get("page_path", ""),
+                "form_type": "auto_detected",
+                "form_views": r.get("views", 0),
+                "form_submissions": r.get("submits", 0),
+                "conversion_rate_pct": r.get("submit_rate_pct", 0.0),
+            })
+
     out.sort(key=lambda r: r["conversion_rate_pct"], reverse=True)
     return out
 
@@ -654,59 +670,261 @@ def events_breakdown(
     return out
 
 
+# ---------------------------------------------------------------
+# Schema self-discovery - so the tool understands THIS property's real
+# event names and custom dimensions instead of assuming standard GA4 names.
+# ---------------------------------------------------------------
+
+@lru_cache(maxsize=8)
+def list_custom_dimensions() -> tuple[str, ...]:
+    """Return this property's registered custom-dimension API names
+    (e.g. 'customEvent:popup_id', 'customEvent:action') via the GA4 metadata
+    API. Returns an empty tuple if metadata can't be read - callers then
+    probe/fall back rather than assume. Cached per process."""
+    try:
+        from google.analytics.data_v1beta.types import GetMetadataRequest
+        md = _client().get_metadata(GetMetadataRequest(name=f"{_property()}/metadata"))
+        names = [d.api_name for d in md.dimensions if d.api_name.startswith("customEvent:")]
+        return tuple(sorted(set(names)))
+    except Exception:
+        return tuple()
+
+
+def discover_schema(start: str, end: str, top_n: int = 40) -> dict:
+    """What this property ACTUALLY tracks: the real event names in use (ranked
+    by count) and the registered custom dimensions. This is the ground truth the
+    agent should adapt to - never assume the standard e-commerce/form protocol.
+    """
+    evs = events(start, end)  # already sorted by count desc
+    top_events = [{"event_name": e["event_name"], "event_count": e["event_count"]}
+                  for e in evs[:top_n]]
+    custom_dims = list(list_custom_dimensions())
+    # Heuristic: which custom dims look like lead/form/popup identifiers or actions
+    id_like = [d for d in custom_dims
+               if any(k in d.lower() for k in ("popup", "form", "lead", "cta"))]
+    action_like = [d for d in custom_dims
+                   if any(k in d.lower() for k in ("action", "state", "status", "step"))]
+    lead_events = [e["event_name"] for e in evs
+                   if any(k in e["event_name"].lower()
+                          for k in ("form", "popup", "lead", "enquir", "enquiry", "submit"))]
+    return {
+        "date_range": {"start": start, "end": end},
+        "total_distinct_events": len(evs),
+        "top_events": top_events,
+        "custom_dimensions": custom_dims,
+        "lead_or_form_id_dimensions": id_like,
+        "action_dimensions": action_like,
+        "lead_form_event_candidates": lead_events[:20],
+        "note": (
+            "These are the REAL events and custom dimensions on this property. "
+            "Map any question (funnel steps, forms, popups, clicks) to these names "
+            "- do not assume standard GA4 names. Lead/form/popup activity on this "
+            "property is typically ONE event carrying an id dimension "
+            "(e.g. customEvent:popup_id) plus an action dimension "
+            "(e.g. customEvent:action = viewed/closed/submitted), not separate "
+            "form_view/form_submit events."
+        ),
+    }
+
+
+# Map the free-text values of an 'action' custom dimension onto the three
+# lifecycle stages, tolerating whatever spelling the site uses.
+_ACTION_VIEW = {"viewed", "view", "shown", "show", "open", "opened", "impression", "impressions", "displayed"}
+_ACTION_CLOSE = {"closed", "close", "dismiss", "dismissed", "dismissal", "exit", "exitafterview", "cancel", "cancelled"}
+_ACTION_SUBMIT = {"submitted", "submit", "success", "successful", "lead", "conversion", "converted", "complete", "completed"}
+
+
+def _classify_action(action: str) -> str | None:
+    a = (action or "").strip().lower()
+    if a in _ACTION_VIEW:
+        return "views"
+    if a in _ACTION_CLOSE:
+        return "closes"
+    if a in _ACTION_SUBMIT:
+        return "submits"
+    return None
+
+
+def adaptive_lead_breakdown(
+    start: str,
+    end: str,
+    id_dim: str | None = None,
+    target_id: str | None = None,
+    page_path_contains: str | None = None,
+) -> dict:
+    """Self-configuring form/popup analytics.
+
+    Instead of assuming standard form_view/popup_view events, this discovers how
+    THIS property models lead capture and adapts:
+
+    1. Modern lifecycle model (this site): one event carries an id dimension
+       (customEvent:popup_id or customEvent:form_id) and an action dimension
+       (customEvent:action = viewed/closed/submitted). We slice by [id, action,
+       pagePath] and derive views/closes/submits from the action values.
+    2. Legacy model: separate events (form_view/form_submit, popup_view/... ).
+       Falls back to event-name mapping so generic properties still work.
+
+    Returns rows keyed by id + page with views/closes/submits, plus which
+    events/dimensions it actually used so the agent can explain itself.
+    """
+    dims_present = set(list_custom_dimensions())
+    id_candidates = ([id_dim] if id_dim else []) + [
+        "customEvent:popup_id", "customEvent:form_id", "customEvent:lead_id",
+    ]
+    action_dim = "customEvent:action" if ("customEvent:action" in dims_present or not dims_present) else None
+
+    # --- Attempt the lifecycle model against each candidate id dimension ---
+    for cand in [c for c in id_candidates if c]:
+        # Skip candidates we know aren't registered (when metadata is readable)
+        if dims_present and cand not in dims_present:
+            continue
+        # Try WITH the action dimension first; if that dim isn't registered the
+        # Data API rejects the whole request, so retry the same id WITHOUT it.
+        rows = None
+        used_action = action_dim
+        for try_action in ([action_dim, None] if action_dim else [None]):
+            dims = [cand] + ([try_action] if try_action else []) + ["eventName", "pagePath"]
+            try:
+                rows = events_breakdown(
+                    start, end, dimensions=dims,
+                    page_path_contains=page_path_contains, limit=2000,
+                )
+                used_action = try_action
+                break
+            except Exception:
+                rows = None
+                continue
+        if rows is None:
+            continue
+
+        id_key = cand.replace("customEvent:", "")
+        real_rows = [r for r in rows if r.get(id_key) and r.get(id_key) != "(not set)"]
+        if not real_rows:
+            continue  # this id dim isn't the one in use; try the next
+
+        events_seen: set[str] = set()
+        actions_seen: set[str] = set()
+        bucket: dict[tuple[str, str], dict] = {}
+        has_action_signal = False
+        for r in real_rows:
+            rid = r.get(id_key)
+            if target_id and rid != target_id:
+                continue
+            page = r.get("pagePath", "(unknown)")
+            slot = bucket.setdefault((rid, page), {
+                "id": rid, "page_path": page,
+                "views": 0, "closes": 0, "submits": 0, "unique_users": 0,
+            })
+            events_seen.add(r.get("eventName", ""))
+            cnt = r["event_count"]
+            if used_action:
+                action_val = r.get("action", "")
+                actions_seen.add(action_val)
+                stage = _classify_action(action_val)
+                if stage:
+                    has_action_signal = True
+                    slot[stage] += cnt
+                    if stage == "views":
+                        slot["unique_users"] = max(slot["unique_users"], r["users"])
+            else:
+                # No action dim: infer stage from the event name itself.
+                ev = (r.get("eventName", "") or "").lower()
+                if any(k in ev for k in ("submit", "lead", "success")):
+                    slot["submits"] += cnt
+                elif any(k in ev for k in ("close", "dismiss", "exit")):
+                    slot["closes"] += cnt
+                else:
+                    slot["views"] += cnt
+                    slot["unique_users"] = max(slot["unique_users"], r["users"])
+
+        out = []
+        for slot in bucket.values():
+            v = slot["views"]
+            slot["submit_rate_pct"] = round(slot["submits"] / v * 100, 2) if v else 0.0
+            slot["close_rate_pct"] = round(slot["closes"] / v * 100, 2) if v else 0.0
+            out.append(slot)
+        out.sort(key=lambda r: (r["views"], r["submits"]), reverse=True)
+
+        model = ("lifecycle (id + action dimension)" if used_action and has_action_signal
+                 else "event-name inferred")
+        return {
+            "rows": out,
+            "id_dimension_used": cand,
+            "action_dimension_used": used_action if (used_action and has_action_signal) else None,
+            "events_used": sorted(e for e in events_seen if e),
+            "action_values_seen": sorted(a for a in actions_seen if a) or None,
+            "model": model,
+            "note": (
+                None if out else
+                f"No rows carried a value for {cand} in this range."
+            ),
+        }
+
+    # --- Legacy fallback: standard separate events, no custom id dimension ---
+    legacy_events = [
+        "form_view", "form_start", "form_submit", "generate_lead",
+        "popup_view", "popup_shown", "popup_open", "popup_close",
+        "popup_dismiss", "popup_submit",
+    ]
+    rows = events_breakdown(
+        start, end, event_names=legacy_events, dimensions=["eventName", "pagePath"],
+        page_path_contains=page_path_contains, limit=1000,
+    )
+    bucket = {}
+    for r in rows:
+        page = r.get("pagePath", "(unknown)")
+        slot = bucket.setdefault(page, {
+            "id": "(page)", "page_path": page,
+            "views": 0, "closes": 0, "submits": 0, "unique_users": 0,
+        })
+        ev = r.get("eventName", "")
+        if ev in ("form_view", "form_start", "popup_view", "popup_shown", "popup_open"):
+            slot["views"] += r["event_count"]
+            slot["unique_users"] = max(slot["unique_users"], r["users"])
+        elif ev in ("popup_close", "popup_dismiss"):
+            slot["closes"] += r["event_count"]
+        elif ev in ("form_submit", "generate_lead", "popup_submit"):
+            slot["submits"] += r["event_count"]
+    out = []
+    for slot in bucket.values():
+        v = slot["views"]
+        slot["submit_rate_pct"] = round(slot["submits"] / v * 100, 2) if v else 0.0
+        slot["close_rate_pct"] = round(slot["closes"] / v * 100, 2) if v else 0.0
+        out.append(slot)
+    out.sort(key=lambda r: r["views"], reverse=True)
+    return {
+        "rows": out,
+        "id_dimension_used": None,
+        "model": "legacy standard events",
+        "note": (
+            "No form/popup id custom dimension is registered on this property, so "
+            "results are grouped by page from standard form_/popup_ events. If your "
+            "site fires a single event (e.g. mkt-form-event) with a popup_id/action "
+            "parameter, register those as custom dimensions in GA4 to get per-form "
+            "breakdowns."
+        ) if not out else None,
+    }
+
+
 def form_breakdown(
     start: str,
     end: str,
     form_id: str | None = None,
     page_path_contains: str | None = None,
 ) -> dict:
-    """High-level form analytics using the form_view / form_start / form_submit
-    triplet with a customEvent:form_id custom dimension if registered."""
-    dims = ["customEvent:form_id", "pagePath", "eventName"]
-    rows = events_breakdown(
-        start, end,
-        event_names=["form_view", "form_start", "form_submit", "generate_lead"],
-        dimensions=dims,
-        page_path_contains=page_path_contains,
+    """Per-form analytics that auto-adapts to how the property tracks forms.
+
+    Discovers the real id dimension (customEvent:form_id or customEvent:popup_id)
+    and, when present, the action dimension (viewed/closed/submitted). Renames the
+    generic id back to `form_id` for the agent.
+    """
+    res = adaptive_lead_breakdown(
+        start, end, target_id=form_id, page_path_contains=page_path_contains,
     )
-
-    bucket: dict[tuple[str, str], dict] = {}
-    for r in rows:
-        fid = r.get("form_id", "(unknown)") or "(unknown)"
-        if form_id and fid != form_id:
-            continue
-        page = r.get("pagePath", "(unknown)")
-        key = (fid, page)
-        slot = bucket.setdefault(key, {
-            "form_id": fid,
-            "page_path": page,
-            "views": 0, "starts": 0, "submits": 0, "unique_users": 0,
-        })
-        ev = r.get("eventName", "")
-        if ev == "form_view":
-            slot["views"] = r["event_count"]
-            slot["unique_users"] = max(slot["unique_users"], r["users"])
-        elif ev == "form_start":
-            slot["starts"] = r["event_count"]
-        elif ev in ("form_submit", "generate_lead"):
-            slot["submits"] += r["event_count"]
-
-    out = []
-    for slot in bucket.values():
-        v = slot["views"]
-        s = slot["submits"]
-        slot["submit_rate_pct"] = round(s / v * 100, 2) if v else 0.0
-        out.append(slot)
-    out.sort(key=lambda r: r["views"], reverse=True)
-    return {
-        "rows": out,
-        "note": (
-            "If form_id is empty everywhere, the customEvent:form_id custom "
-            "dimension is not registered in GA4 yet. Register it under "
-            "Admin > Custom definitions and have the site fire form_view / "
-            "form_submit events with a form_id parameter."
-        ) if all(r["form_id"] == "(unknown)" for r in out) else None,
-    }
+    for r in res["rows"]:
+        r["form_id"] = r.pop("id")
+        r["starts"] = r.get("views", 0)  # back-compat field
+    return res
 
 
 # ---------------------------------------------------------------
@@ -870,13 +1088,8 @@ def pages_engagement_ranked(start: str, end: str, limit: int = 25) -> list[dict]
 
 
 # ---------------------------------------------------------------
-# Popup breakdown (popup_id custom dimension)
+# Popup breakdown (delegates to the adaptive lead engine above)
 # ---------------------------------------------------------------
-
-POPUP_VIEW_EVENTS = ["popup_view", "popup_shown", "popup_open", "popup_opened", "modal_open"]
-POPUP_CLOSE_EVENTS = ["popup_close", "popup_closed", "popup_dismiss", "popup_dismissed", "modal_close"]
-POPUP_SUBMIT_EVENTS = ["popup_submit", "popup_conversion", "popup_lead", "generate_lead"]
-
 
 def popup_breakdown(
     start: str,
@@ -884,62 +1097,17 @@ def popup_breakdown(
     popup_id: str | None = None,
     page_path_contains: str | None = None,
 ) -> dict:
-    """Per-popup analytics: views, closes (rage-quits), submits, submit rate,
-    aggregated per (popup_id, page_path). Uses the popup_view / popup_close /
-    popup_submit family of events with a customEvent:popup_id dimension.
+    """Per-popup/lead-form analytics that auto-adapts to the property.
 
-    Tries a broad set of common event names so it works regardless of
-    whether your site uses popup_view vs popup_shown vs popup_open etc.
+    On this property, forms AND popups are the same lifecycle event carrying a
+    customEvent:popup_id and customEvent:action (viewed/closed/submitted), so
+    this shares the adaptive engine with form_breakdown. Returns views, closes,
+    submits, submit-rate and close-rate per (popup_id, page).
     """
-    all_events = POPUP_VIEW_EVENTS + POPUP_CLOSE_EVENTS + POPUP_SUBMIT_EVENTS
-    rows = events_breakdown(
-        start, end,
-        event_names=all_events,
-        dimensions=["customEvent:popup_id", "pagePath", "eventName"],
-        page_path_contains=page_path_contains,
-        limit=1000,
+    res = adaptive_lead_breakdown(
+        start, end, id_dim="customEvent:popup_id",
+        target_id=popup_id, page_path_contains=page_path_contains,
     )
-
-    bucket: dict[tuple[str, str], dict] = {}
-    for r in rows:
-        pid = r.get("popup_id", "(unknown)") or "(unknown)"
-        if popup_id and pid != popup_id:
-            continue
-        page = r.get("pagePath", "(unknown)")
-        key = (pid, page)
-        slot = bucket.setdefault(key, {
-            "popup_id": pid,
-            "page_path": page,
-            "views": 0, "closes": 0, "submits": 0, "unique_users": 0,
-        })
-        ev = r.get("eventName", "")
-        if ev in POPUP_VIEW_EVENTS:
-            slot["views"] += r["event_count"]
-            slot["unique_users"] = max(slot["unique_users"], r["users"])
-        elif ev in POPUP_CLOSE_EVENTS:
-            slot["closes"] += r["event_count"]
-        elif ev in POPUP_SUBMIT_EVENTS:
-            slot["submits"] += r["event_count"]
-
-    out = []
-    for slot in bucket.values():
-        v = slot["views"]
-        slot["submit_rate_pct"] = round(slot["submits"] / v * 100, 2) if v else 0.0
-        slot["close_rate_pct"] = round(slot["closes"] / v * 100, 2) if v else 0.0
-        out.append(slot)
-    out.sort(key=lambda r: r["views"], reverse=True)
-
-    needs_setup = all(r["popup_id"] == "(unknown)" for r in out) and out
-    note = None
-    if not out:
-        note = ("No popup events found. Either no popups fired in this range, or "
-                "the site doesn't emit any of: " + ", ".join(all_events))
-    elif needs_setup:
-        note = ("popup_id is empty for every row. Two possible fixes: "
-                "(1) register 'popup_id' as a custom dimension in GA4 "
-                "(Admin > Custom definitions > Create custom dimension, "
-                "Event parameter = 'popup_id', Scope = Event), and "
-                "(2) ensure the site's dataLayer.push includes popup_id "
-                "on every popup_view / popup_close / popup_submit event.")
-
-    return {"rows": out, "note": note}
+    for r in res["rows"]:
+        r["popup_id"] = r.pop("id")
+    return res
