@@ -818,6 +818,8 @@ def _chat_gemini(messages, model, api_key, attachments=None, datasets=None,
 
     yielded_text = False
     malformed_retries = 0
+    empty_retries = 0
+    produced_anything = False  # any text or tool call across the whole turn
     for _ in range(12):
         response = client.models.generate_content(
             model=model,
@@ -830,9 +832,10 @@ def _chat_gemini(messages, model, api_key, attachments=None, datasets=None,
                  if candidate and candidate.content and candidate.content.parts else None)
 
         if not parts:
-            # Gemini can return no usable parts - most often a MALFORMED_FUNCTION_CALL
-            # (it mangled a tool's arguments, e.g. multi-line analyze_data code) or a
-            # safety/length stop. Surface it and retry once by nudging the model.
+            # Gemini can return no usable parts - either a MALFORMED_FUNCTION_CALL
+            # (it mangled a tool's arguments), or - very common on gemini-2.5-flash -
+            # a transient EMPTY candidate on the first hop (finish_reason STOP with no
+            # content), especially with a large system prompt + many tools.
             reason = getattr(candidate, "finish_reason", None) if candidate else None
             reason = getattr(reason, "name", str(reason)) if reason is not None else "UNKNOWN"
             if reason == "MALFORMED_FUNCTION_CALL" and malformed_retries < 2:
@@ -844,12 +847,18 @@ def _chat_gemini(messages, model, api_key, attachments=None, datasets=None,
                     "again. Otherwise, just answer in plain text."
                 )}]})
                 continue
+            # Transient empty response and we haven't produced anything yet: just
+            # retry the same request a few times - it usually succeeds on retry.
+            if not produced_anything and empty_retries < 3:
+                empty_retries += 1
+                continue
             if not yielded_text:
                 yield {"type": "text", "text": (
-                    "I couldn't complete that with the file this time "
-                    f"(model stop reason: `{reason}`). Please try rephrasing, or ask "
-                    "the specific number/column you need and I'll compute it directly."
+                    "The model returned an empty response that time "
+                    f"(reason: `{reason}`) - this is usually a brief hiccup. Please "
+                    "send the question again, and if it repeats, rephrase it slightly."
                 )}
+                yielded_text = True
             break
 
         model_parts = []
@@ -858,12 +867,14 @@ def _chat_gemini(messages, model, api_key, attachments=None, datasets=None,
             if getattr(part, "text", None):
                 yield {"type": "text", "text": part.text}
                 yielded_text = True
+                produced_anything = True
                 model_parts.append({"text": part.text})
             fc = getattr(part, "function_call", None)
             if fc:
                 args = dict(fc.args) if fc.args else {}
                 args.pop("_unused", None)
                 yield {"type": "tool_use", "name": fc.name, "input": args}
+                produced_anything = True
                 model_parts.append({"function_call": {"name": fc.name, "args": args}})
                 tool_calls.append((fc.name, args))
 
@@ -871,6 +882,11 @@ def _chat_gemini(messages, model, api_key, attachments=None, datasets=None,
             contents.append({"role": "model", "parts": model_parts})
 
         if not tool_calls:
+            # Parts came back but with no text and no tool call (e.g. a thinking-only
+            # candidate). If we've produced nothing, retry a few times before giving up.
+            if not yielded_text and not produced_anything and empty_retries < 3:
+                empty_retries += 1
+                continue
             break
 
         response_parts = []
