@@ -390,8 +390,37 @@ TOOL_SCHEMAS = [
                     "type": "boolean",
                     "description": "If true, match this exact pagePath only (matches a single GA4 UI row). Default false = substring match.",
                 },
+                "include_query_string": {
+                    "type": "boolean",
+                    "description": "If true, match on pagePathPlusQueryString instead of pagePath - REQUIRED for filtered pages (e.g. a collection filter). Then pass the query fragment in page_path_contains, e.g. 'tile_collections=430'. Default false.",
+                },
             },
             "required": ["start_date", "end_date", "page_path_contains"],
+        },
+    },
+    {
+        "name": "query_filter_performance",
+        "description": (
+            "Traffic + engagement for every FILTERED page (e.g. each collection "
+            "filter), read from GA4's pagePathPlusQueryString - which KEEPS the query "
+            "string that the standard Pages report (pagePath) drops. Use this for "
+            "'how is each collection filter doing', 'which collection filter gets the "
+            "most traffic', or to measure one filter code. Returns one row per filter "
+            "VALUE/code (e.g. tile_collections=430) with page views, users and avg "
+            "engagement time. The codes are not human names - map them to collections "
+            "with the audit tool `find_filters` (label -> code). If it returns empty, "
+            "GA4 is stripping query parameters for this property and filter pages can't "
+            "be measured by URL (say so; a dedicated filter event would be needed)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "param": {"type": "string", "description": "The filter query parameter, default 'tile_collections'. Others: 'tile_color', 'tile_size', etc."},
+                "limit": {"type": "integer", "description": "Max filter values to return (default 200)."},
+            },
+            "required": ["start_date", "end_date"],
         },
     },
     {
@@ -965,6 +994,16 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
             return json.dumps(ga4_client.page_metrics(
                 args["start_date"], args["end_date"], args["page_path_contains"],
                 exact=bool(args.get("exact", False)),
+                include_query_string=bool(args.get("include_query_string", False)),
+            ))
+
+        if name == "query_filter_performance":
+            if not _ga4_live():
+                return json.dumps({"note": "Filter performance needs the live GA4 connection."})
+            return json.dumps(ga4_client.filter_traffic(
+                args["start_date"], args["end_date"],
+                param=args.get("param", "tile_collections"),
+                limit=int(args.get("limit", 200)),
             ))
 
         if name == "query_pages_engagement_ranked":

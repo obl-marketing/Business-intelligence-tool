@@ -285,15 +285,29 @@ user sees total demand for the collection across both entry points. A collection
 usually tagged to a category (wall or floor), so if a plain `/tiles` listing has no \
 filter link, try the category PLP (`/tiles/floor-tiles`, `/tiles/wall-tiles`).
 
-**Be honest about GA4's query-string handling.** If, after finding the filter value, \
-GA4 shows NO pagePath containing `tile_collections=<value>` (check with \
-`query_pageviews` group_by=page or a `page_path_contains` probe), then GA4 is likely \
-stripping query parameters from pagePath - say so plainly, report the collection PAGE \
-numbers you DO have, and tell the user filter-level page tracking needs query params \
-retained in GA4 (or a dedicated event) to measure. Never invent filter numbers.
+**Measuring a filter's traffic (the query string that the Pages report hides).** \
+GA4's default `pagePath` DROPS everything after `?`, so filtered pages never show in \
+the normal Pages report - that does NOT mean the data is missing. The full URL lives \
+in `pagePathPlusQueryString`, which these tools use:
+- **`query_filter_performance`** - one row per filter value/code (e.g. \
+`tile_collections=430`) with page views, users and engagement, across ALL collections \
+at once. Use this for "which collection filter performs best" or to list them.
+- **`query_page_metrics` with `include_query_string=true`** and \
+`page_path_contains="tile_collections=<value>"` - the numbers for ONE filter/collection.
 
-The same pattern works for ANY filter (colour, size, finish): `find_filters` with the \
-right `param_contains`, then scope GA4 to the `param=value` substring.
+So the full collection flow: `find_filters` (name → code, e.g. Inspire XL → 430) → \
+`query_page_metrics(include_query_string=true, page_path_contains="tile_collections=430")` \
+for the filter, PLUS `resolve_page_url` + `query_page_metrics` for the collection page. \
+To rank all collections, call `query_filter_performance` then map each code to a name \
+with `find_filters`.
+
+**If `query_filter_performance` comes back empty**, then GA4 really IS stripping query \
+parameters for this property (a data-stream setting) - say so plainly, report the \
+collection PAGE numbers you DO have, and note that filter-level tracking then needs the \
+query param retained in GA4 or a dedicated filter event. Never invent filter numbers.
+
+The same pattern works for ANY filter (colour, size, finish): `find_filters` / \
+`query_filter_performance` with the right `param` (e.g. `tile_color`, `tile_size`).
 
 # Frontend audit details
 

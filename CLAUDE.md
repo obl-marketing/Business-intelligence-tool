@@ -61,8 +61,15 @@ Therefore the tools **self-discover** the schema instead of assuming standard na
   `frontend_audit.extract_filter_links()` (tool `find_filters`) renders a listing/PLP
   page and maps each human label → its real filter URL + `param=value`, returning
   `ga4_page_path_contains` (the `tile_collections=<value>` substring) to scope GA4.
-  Always measure BOTH the collection page and the filter, and be honest if GA4 strips
-  query strings from pagePath (then filter-level traffic isn't measurable there).
+  Always measure BOTH the collection page and the filter.
+- **Filter traffic (query string):** GA4's `pagePath` dimension DROPS the query string,
+  so filtered pages never appear in the standard Pages report — but the data is kept in
+  `pagePathPlusQueryString`. `ga4_client.filter_traffic()` (tool `query_filter_performance`)
+  rolls traffic up per filter value/code (e.g. `tile_collections=430`) from that
+  dimension; `page_metrics(..., include_query_string=True)` (tool arg
+  `include_query_string`) measures one filter. Codes are opaque — map code→collection
+  name via `find_filters`. Only if `query_filter_performance` is genuinely empty is GA4
+  actually stripping query params (a data-stream setting) — then say so; don't invent.
 - `planner.preflight()` runs before any API call: it resolves URLs + discovers the real
   schema and drafts a fetch plan, injected into the system prompt. Fully guarded.
 
