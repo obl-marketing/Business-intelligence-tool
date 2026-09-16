@@ -936,7 +936,6 @@ def page_metrics(
     end: str,
     page_path_contains: str,
     exact: bool = False,
-    include_query_string: bool = False,
 ) -> dict:
     """Engagement + traffic metrics for a specific page (or page group).
 
@@ -948,13 +947,7 @@ def page_metrics(
     also pulls in '/tiles/floor-tiles-matt', '/tiles/floor-tiles/600x600', ...),
     which legitimately shows higher totals than a single UI row.
 
-    Set `include_query_string=True` to match on `pagePathPlusQueryString` instead of
-    `pagePath` — REQUIRED for filtered pages (e.g. a collection filter
-    '/tiles?tile_collections=430'), because `pagePath` drops everything after '?'.
-    With it on, pass the query fragment in `page_path_contains`, e.g.
-    'tile_collections=430'.
-
-    Runs the aggregate query WITHOUT the page dimension so GA4 deduplicates
+    Runs the aggregate query WITHOUT pagePath as a dimension so GA4 deduplicates
     activeUsers correctly — the same way the GA4 UI does. Summing per-page
     activeUsers rows would double-count users who visited multiple matching paths.
     """
@@ -962,14 +955,13 @@ def page_metrics(
         RunReportRequest, DateRange, Dimension, Metric, FilterExpression, Filter,
     )
 
-    page_field = "pagePathPlusQueryString" if include_query_string else "pagePath"
     match_type = (
         Filter.StringFilter.MatchType.EXACT if exact
         else Filter.StringFilter.MatchType.CONTAINS
     )
     path_filter = FilterExpression(
         filter=Filter(
-            field_name=page_field,
+            field_name="pagePath",
             string_filter=Filter.StringFilter(
                 match_type=match_type,
                 value=page_path_contains,
@@ -1013,7 +1005,7 @@ def page_metrics(
     page_response = _client().run_report(RunReportRequest(
         property=_property(),
         date_ranges=[DateRange(start_date=start, end_date=end)],
-        dimensions=[Dimension(name=page_field)],
+        dimensions=[Dimension(name="pagePath")],
         metrics=[Metric(name="screenPageViews")],
         dimension_filter=path_filter,
         limit=1000,
@@ -1049,91 +1041,6 @@ def page_metrics(
             + ("Matched exactly one path (exact=True)." if exact else
                f"CONTAINS match spanned {len(matched_paths)} path(s) - if this is "
                "higher than a single GA4 UI row, pass exact=True for that one path.")
-        ),
-    }
-
-
-def filter_traffic(start: str, end: str, param: str = "tile_collections",
-                   limit: int = 200) -> dict:
-    """Traffic + engagement for every FILTERED page, from `pagePathPlusQueryString`
-    (which keeps the query string that the default `pagePath` report drops).
-
-    Filters to page URLs whose query contains `<param>=` (e.g. 'tile_collections='),
-    then rolls the metrics up per distinct filter VALUE/code (a collection may appear
-    on several base paths - floor/wall - which are summed). This is how we measure
-    each collection filter (e.g. tile_collections=430) even though it never shows in
-    the standard Pages report. Map the codes to names with the audit `find_filters`.
-    """
-    import re
-    from google.analytics.data_v1beta.types import (
-        RunReportRequest, DateRange, Dimension, Metric, FilterExpression, Filter,
-    )
-
-    q_filter = FilterExpression(filter=Filter(
-        field_name="pagePathPlusQueryString",
-        string_filter=Filter.StringFilter(
-            match_type=Filter.StringFilter.MatchType.CONTAINS, value=f"{param}=",
-        ),
-    ))
-    resp = _client().run_report(RunReportRequest(
-        property=_property(),
-        date_ranges=[DateRange(start_date=start, end_date=end)],
-        dimensions=[Dimension(name="pagePathPlusQueryString")],
-        metrics=[Metric(name="activeUsers"), Metric(name="screenPageViews"),
-                 Metric(name="userEngagementDuration"), Metric(name="engagementRate")],
-        dimension_filter=q_filter,
-        limit=100000,
-    ))
-
-    val_re = re.compile(rf"[?&]{re.escape(param)}=([^&]+)")
-    by_code: dict[str, dict] = {}
-    for r in resp.rows:
-        full = r.dimension_values[0].value or ""
-        m = val_re.search(full)
-        if not m:
-            continue
-        code = m.group(1)
-        au = _num(r.metric_values[0].value)
-        pv = _num(r.metric_values[1].value)
-        eng = _num(r.metric_values[2].value)
-        slot = by_code.setdefault(code, {
-            "value": code, "param": param,
-            "ga4_page_path_contains": f"{param}={code}",
-            "page_views": 0, "active_users": 0, "_eng": 0.0, "example_urls": [],
-        })
-        slot["page_views"] += int(pv)
-        slot["active_users"] += int(au)   # approx (summed across base paths)
-        slot["_eng"] += eng
-        if len(slot["example_urls"]) < 3:
-            slot["example_urls"].append(full)
-
-    rows = []
-    for slot in by_code.values():
-        au = slot["active_users"]
-        slot["avg_engagement_time_per_user_seconds"] = round(slot["_eng"] / au, 1) if au else 0.0
-        slot.pop("_eng", None)
-        rows.append(slot)
-    rows.sort(key=lambda r: r["page_views"], reverse=True)
-
-    return {
-        "param": param,
-        "date_range": {"start": start, "end": end},
-        "distinct_filter_values": len(rows),
-        "rows": rows[:limit],
-        "note": (
-            f"Traffic per '{param}' filter value, read from pagePathPlusQueryString "
-            "(keeps the query string the default pagePath report drops). Each row is a "
-            "filter CODE; map codes to collection names with the audit tool "
-            "(find_filters). If this is empty, GA4 IS stripping query parameters for "
-            "this property (Admin > Data Streams > Configure tag settings > List "
-            "unwanted referrals / query-param exclusion, or a 'remove query params' "
-            "setting) - then filter pages can't be measured via page paths and you'd "
-            "need a dedicated filter event instead."
-            if rows else
-            f"No page URLs contained '{param}=' in pagePathPlusQueryString for this "
-            "range. Either no filter traffic, or GA4 is configured to strip query "
-            "parameters (so the filter value never reaches GA4). If you expected "
-            "traffic, check the data stream's query-parameter settings."
         ),
     }
 
