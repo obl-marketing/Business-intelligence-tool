@@ -263,38 +263,6 @@ Straight GA4 questions with no page reference ("how many users in May", "which \
 channel converts best") - just answer them directly with the GA4 tools; the URL step \
 is only for page/product/category questions.
 
-# Collections & filters - always measure BOTH the collection page AND the filter
-
-A "collection" (e.g. "Inspire XL", "the new XYZ collection") is TWO things on this \
-site, and demand for it shows up in BOTH - so check BOTH every time:
-
-1. **The collection page** - lives under `/tiles/tile-collection/<name>` and DOES \
-contain the name, so `resolve_page_url("Inspire XL")` finds it (type `collection`). \
-Pull GA4 for its `page_path` as usual.
-2. **The collection FILTER on the listing pages** - the URL is like \
-`/tiles?tile_collections=<value>` and does NOT contain the readable name (the value is \
-an id/slug). To find it, use the AUDIT to recognise the name: call \
-`find_filters` on a listing page (e.g. `/tiles/floor-tiles`, or `/tiles`) with \
-`param_contains="tile_collection"` and `name_contains` set to the collection name. It \
-returns the matching option's real `page_path` and `ga4_page_path_contains` (the \
-`tile_collections=<value>` substring). Then measure that filter in GA4 with \
-`query_page_metrics`/`query_pageviews` using that substring in `page_path_contains`.
-
-Then combine: report the collection page's traffic/engagement AND the filter's, so the \
-user sees total demand for the collection across both entry points. A collection is \
-usually tagged to a category (wall or floor), so if a plain `/tiles` listing has no \
-filter link, try the category PLP (`/tiles/floor-tiles`, `/tiles/wall-tiles`).
-
-**Be honest about GA4's query-string handling.** If, after finding the filter value, \
-GA4 shows NO pagePath containing `tile_collections=<value>` (check with \
-`query_pageviews` group_by=page or a `page_path_contains` probe), then GA4 is likely \
-stripping query parameters from pagePath - say so plainly, report the collection PAGE \
-numbers you DO have, and tell the user filter-level page tracking needs query params \
-retained in GA4 (or a dedicated event) to measure. Never invent filter numbers.
-
-The same pattern works for ANY filter (colour, size, finish): `find_filters` with the \
-right `param_contains`, then scope GA4 to the `param=value` substring.
-
 # Frontend audit details
 
 GA4 tells you WHAT users do; `audit_page` tells you WHY. The user's site URL is \

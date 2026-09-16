@@ -202,33 +202,6 @@ TOOL_SCHEMAS = [
         },
     },
     {
-        "name": "find_filters",
-        "description": (
-            "Render a listing/category (PLP) page and read its FILTER options, "
-            "mapping each human label to the real filter URL + query value. Use this "
-            "for COLLECTIONS and any filter whose URL does NOT contain the readable "
-            "name - e.g. a collection 'Inspire XL' whose filter link is "
-            "`/tiles?tile_collections=1234`. Pass a listing page as `url_or_path` "
-            "(e.g. '/tiles/floor-tiles' or '/tiles'), `param_contains` to scope to a "
-            "filter type (e.g. 'tile_collection' for collections, 'color', 'size'), "
-            "and optional `name_contains` (e.g. 'inspire') to find one option. Each "
-            "result gives the `page_path` and `ga4_page_path_contains` (the "
-            "`param=value` substring) to feed GA4 tools (query_page_metrics / "
-            "query_pageviews) so you can measure that filter's traffic and engagement. "
-            "This is the 'use the audit to recognise the name' step for filters."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "url_or_path": {"type": "string", "description": "A listing/PLP page to read filters from, e.g. '/tiles/floor-tiles' or '/tiles'."},
-                "param_contains": {"type": "string", "description": "Optional: only filters whose query key contains this, e.g. 'tile_collection', 'color', 'size'."},
-                "name_contains": {"type": "string", "description": "Optional: only options whose visible label contains this, e.g. 'inspire' to find the Inspire XL collection filter."},
-                "limit": {"type": "integer", "description": "Max filter options to return (default 60)."},
-            },
-            "required": ["url_or_path"],
-        },
-    },
-    {
         "name": "discover_ga4_schema",
         "description": (
             "Discover what THIS GA4 property actually tracks: its real event names "
@@ -890,16 +863,6 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
             import frontend_audit
             data = frontend_audit.resolve_page_url(
                 args["query"], limit=int(args.get("limit", 8)))
-            return json.dumps(data)
-
-        if name == "find_filters":
-            import frontend_audit
-            data = frontend_audit.extract_filter_links(
-                args["url_or_path"],
-                param_contains=args.get("param_contains"),
-                name_contains=args.get("name_contains"),
-                limit=int(args.get("limit", 60)),
-            )
             return json.dumps(data)
 
         if name == "discover_ga4_schema":
