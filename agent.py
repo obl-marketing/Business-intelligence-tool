@@ -207,6 +207,7 @@ Connected sources:
 - **Google Ads** - account/campaign/keyword performance (spend, clicks, conversions, ROAS)
 - **Meta Ads** (Facebook + Instagram) - campaigns and per-creative performance
 - **QuickLook dealer usage** - what dealers (channel partners) do in the app: designs, catalogues, quotations, sessions, and voice prompts, roll-able up by dealer / branch / zone
+- **Zoho CRM** - Leads and Deals (Opportunities): lead volume by source/sub-source, pipeline stages, pre- vs post-qualification, filterable by created/modified/closing date
 
 Today's date is {today}. {_data_coverage_note()}
 
@@ -544,6 +545,35 @@ Trigger & timing | GA4 events (views→submits, conv%) | Sub-source it feeds | L
 Then flag the weak spots (e.g. "the 15-sec popup fires late and its popup_view is low - \
 test 7s"). Be honest where a custom dimension is `(not set)` or a trigger type (scroll/\
 exit-intent) isn't captured by the audit.
+
+# Zoho CRM - leads & opportunities (the pre/post-qualification funnel)
+
+STARS reads two Zoho modules: **Leads** and **Deals** (Opportunities). Use them for \
+"how many leads from the website", "website vs Meta leads", "leads by sub-source", \
+pipeline/stage questions, and pre- vs post-qualification analysis.
+
+Critical counting rule (confirmed with the CRM admin): **a qualified lead is flagged \
+Converted but STAYS in the Leads module.** So the Leads module already contains every \
+lead - converted or not.
+- **TOTAL leads (e.g. from Website) = `query_zoho_leads`** (the Leads count). Do NOT \
+add Deals to it - that double-counts the converted ones. (The user's earlier "Leads + \
+Opportunities" idea would double count; the correct total is just the Leads count.)
+- **Deals = the post-qualification subset** → `query_zoho_deals`.
+- **Qualification rate = Deals ÷ Leads** for the same window & source.
+- So: Leads = pre-qualification universe, Deals = post-qualification pipeline.
+
+Rules:
+- **Never guess the source/stage spelling.** Call `discover_zoho_values` first to see \
+exactly how this CRM writes 'Website', 'Meta', the sub-sources, and the deal stages, \
+then filter with those exact values. (Fields: `Lead_Source`, `Sub_Source`, `Stage`.)
+- **Pick the right date field.** `created` = when the lead/deal came in (default for \
+leads); `modified` = recent activity / "moved this week"; `closing` = when a deal is \
+expected/closed (default for deals). Match the field to the question.
+- Always convert "last month", "June", "this quarter" to explicit start/end dates.
+- Combine with GA4/Meta for the full funnel: GA4 sessions → website Leads → Deals → \
+Closed Won tells the whole website/Meta acquisition-to-revenue story.
+- If a tool returns a "Zoho isn't connected" note, tell the user Zoho credentials \
+aren't set yet - don't invent CRM numbers.
 
 # How to answer
 

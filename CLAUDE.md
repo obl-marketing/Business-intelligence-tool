@@ -57,6 +57,25 @@ Therefore the tools **self-discover** the schema instead of assuming standard na
 - `planner.preflight()` runs before any API call: it resolves URLs + discovers the real
   schema and drafts a fetch plan, injected into the system prompt. Fully guarded.
 
+## Zoho CRM (Leads & Deals / Opportunities)
+
+- `zoho_client.py` handles OAuth (refresh-token → access-token) and `get`/`post`.
+  `zoho_crm.py` (tools `query_zoho_leads`, `query_zoho_deals`, `discover_zoho_values`)
+  runs native **COQL** against the Leads and Deals modules. `zoho_opportunities.py` is
+  the OLD custom-endpoint (`ChatbotDeals`) scaffold — superseded by `zoho_crm.py`.
+- **Config, not hard-coded:** field/module API names come from env
+  (`ZOHO_SOURCE_FIELD`=Lead_Source, `ZOHO_SUBSOURCE_FIELD`=Sub_Source,
+  `ZOHO_STAGE_FIELD`=Stage, modules Leads/Deals). Date keys map created→Created_Time,
+  modified→Modified_Time, closing→Closing_Date. Data centre is **.com**
+  (`ZOHO_ACCOUNTS_URL=https://accounts.zoho.com`).
+- **Counting rule (confirmed):** a converted lead is flagged Converted but STAYS in
+  Leads. So TOTAL leads = the Leads count (never Leads + Deals — that double-counts);
+  Deals = post-qualification subset; qualification rate = Deals ÷ Leads. Leads =
+  pre-qualification universe.
+- **Don't guess source/stage spelling** — `discover_zoho_values` lists the real
+  Lead_Source/Sub_Source/Stage values. Needs one live validation pass once the refresh
+  token is set (COQL aggregate/field behaviour verified against the live property).
+
 **Policy: don't rely on hand-written event definitions.** STARS discovers events itself.
 Keep the Knowledge Base for business context it CANNOT infer from GA4 (page-structure
 rules, brand/definition rules); avoid re-adding raw event-name dictionaries — the three

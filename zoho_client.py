@@ -116,6 +116,28 @@ def get(path: str, params: dict | None = None) -> dict:
     return resp.json()
 
 
+def post(path: str, json_body: dict) -> dict:
+    """Authenticated POST against the Zoho API domain (used by COQL:
+    path 'crm/v3/coql', body {'select_query': '...'}). Refreshes once on 401.
+    A 204 (no rows) is returned as an empty payload rather than an error."""
+    import httpx
+    url = f"{_api_domain()}/{path.lstrip('/')}"
+
+    def _call(tok: str):
+        with httpx.Client(timeout=60.0) as client:
+            return client.post(url, json=json_body,
+                               headers={"Authorization": f"Zoho-oauthtoken {tok}"})
+
+    resp = _call(access_token())
+    if resp.status_code == 401:
+        resp = _call(_refresh())
+    if resp.status_code == 204:
+        return {"data": [], "info": {"more_records": False}}
+    if resp.status_code >= 400:
+        raise ZohoError(f"Zoho API {resp.status_code} on {path}: {resp.text[:300]}")
+    return resp.json()
+
+
 def selftest() -> dict:
     """Attempt a token refresh and report status WITHOUT exposing the token.
     Run on the server after setting the secrets to validate the refresh flow:
