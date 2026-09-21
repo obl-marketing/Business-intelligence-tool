@@ -32,7 +32,17 @@ class ZohoError(RuntimeError):
     pass
 
 
+def _static_token() -> str:
+    """A directly-supplied access token (ZOHO_ACCESS_TOKEN), for quick testing
+    without the refresh-token dance. Zoho access tokens expire in ~1 hour, so this
+    is a temporary bridge - set ZOHO_REFRESH_TOKEN for a permanent connection."""
+    return (os.environ.get("ZOHO_ACCESS_TOKEN") or "").strip()
+
+
 def is_configured() -> bool:
+    # Either a directly-supplied (temporary) access token, OR the refresh-token trio.
+    if _static_token():
+        return True
     return all(bool((os.environ.get(k) or "").strip())
                for k in ("ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REFRESH_TOKEN"))
 
@@ -55,6 +65,11 @@ def _api_domain() -> str:
 def _refresh() -> str:
     """Exchange the refresh token for a new access token; cache it."""
     import httpx
+    if not (os.environ.get("ZOHO_REFRESH_TOKEN") or "").strip():
+        raise ZohoError(
+            "No ZOHO_REFRESH_TOKEN is set. You're on a temporary ZOHO_ACCESS_TOKEN "
+            "which has now expired - paste a fresh access token, or set a refresh "
+            "token for a permanent connection.")
     params = {
         "grant_type": "refresh_token",
         "client_id": os.environ["ZOHO_CLIENT_ID"].strip(),
@@ -91,7 +106,11 @@ def _refresh() -> str:
 
 
 def access_token() -> str:
-    """Return a valid access token, refreshing ~60s before expiry."""
+    """Return a valid access token. A directly-supplied ZOHO_ACCESS_TOKEN wins
+    (temporary testing mode); otherwise use/refresh the refresh-token flow."""
+    static = _static_token()
+    if static:
+        return static
     if _cache["access_token"] and time.time() < _cache["expires_at"] - 60:
         return _cache["access_token"]
     return _refresh()
@@ -144,8 +163,28 @@ def selftest() -> dict:
         python -c "import zoho_client, json; print(json.dumps(zoho_client.selftest()))"
     """
     if not is_configured():
-        return {"ok": False, "error": "ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / "
-                                      "ZOHO_REFRESH_TOKEN not all set."}
+        return {"ok": False, "error": "Set ZOHO_ACCESS_TOKEN (quick test) OR "
+                                      "ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / "
+                                      "ZOHO_REFRESH_TOKEN (permanent)."}
+    # Temporary access-token mode: verify it with a tiny real API call.
+    if _static_token():
+        try:
+            import httpx
+            with httpx.Client(timeout=30.0) as client:
+                r = client.get(f"{_api_domain()}/crm/v3/Leads",
+                               params={"fields": "id", "per_page": 1},
+                               headers={"Authorization": f"Zoho-oauthtoken {_static_token()}"})
+            if r.status_code < 400:
+                return {"ok": True, "mode": "static_access_token",
+                        "api_domain": _api_domain(),
+                        "note": "Temporary access token works (expires ~1h). "
+                                "Set ZOHO_REFRESH_TOKEN for a permanent connection."}
+            return {"ok": False, "mode": "static_access_token",
+                    "error": f"Access token rejected (HTTP {r.status_code}): {r.text[:200]}",
+                    "hint": "The token likely expired (they last ~1h) or lacks the "
+                            "Leads read scope. Paste a fresh one."}
+        except Exception as exc:
+            return {"ok": False, "mode": "static_access_token", "error": str(exc)}
     try:
         _refresh()
         return {
