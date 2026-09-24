@@ -58,7 +58,9 @@ def _accounts_url() -> str:
 
 
 def _api_domain() -> str:
-    return ((os.environ.get("ZOHO_API_DOMAIN") or _cache.get("api_domain")
+    # Prefer the api_domain Zoho returns WITH the token (authoritative for that
+    # token/org) over any env override, which may point at the wrong data centre.
+    return ((_cache.get("api_domain") or os.environ.get("ZOHO_API_DOMAIN")
              or DEFAULT_API_DOMAIN)).rstrip("/")
 
 
@@ -222,7 +224,16 @@ def selftest() -> dict:
     records = _records_probe()
     coql = _coql_probe()
     result = {"ok": True, "mode": mode, "api_domain": _api_domain(),
-              "api_version": ver, "records": records, "coql": coql}
+              "api_version": ver, "records": records, "coql": coql,
+              "token_api_domain": _cache.get("api_domain"),
+              "env_api_domain": os.environ.get("ZOHO_API_DOMAIN")}
+    if (_cache.get("api_domain") and os.environ.get("ZOHO_API_DOMAIN")
+            and _cache["api_domain"].rstrip("/") != os.environ["ZOHO_API_DOMAIN"].rstrip("/")):
+        result["diagnosis"] = (
+            f"Data-centre MISMATCH: the token belongs to {_cache['api_domain']} but "
+            f"ZOHO_API_DOMAIN is {os.environ['ZOHO_API_DOMAIN']}. We're now using the "
+            "token's own domain; if reads still 401 it's a scope/permission issue.")
+        return result
     if records.get("records_ok") and not coql.get("coql_ok"):
         result["diagnosis"] = ("Records read works but COQL is blocked -> the token "
                                "lacks ZohoCRM.coql.READ. Either add that scope, or "
