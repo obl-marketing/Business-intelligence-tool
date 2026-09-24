@@ -105,15 +105,28 @@ def _refresh() -> str:
     return token
 
 
+def _has_refresh_trio() -> bool:
+    return all(bool((os.environ.get(k) or "").strip())
+               for k in ("ZOHO_CLIENT_ID", "ZOHO_CLIENT_SECRET", "ZOHO_REFRESH_TOKEN"))
+
+
 def access_token() -> str:
-    """Return a valid access token. A directly-supplied ZOHO_ACCESS_TOKEN wins
-    (temporary testing mode); otherwise use/refresh the refresh-token flow."""
-    static = _static_token()
-    if static:
-        return static
-    if _cache["access_token"] and time.time() < _cache["expires_at"] - 60:
-        return _cache["access_token"]
-    return _refresh()
+    """Return a valid access token. Prefer the durable refresh-token flow when it's
+    configured (so setting both tokens is safe); fall back to a directly-supplied
+    ZOHO_ACCESS_TOKEN if there's no refresh trio, or if a refresh attempt fails."""
+    if _has_refresh_trio():
+        if _cache["access_token"] and time.time() < _cache["expires_at"] - 60:
+            return _cache["access_token"]
+        try:
+            return _refresh()
+        except ZohoError:
+            if _static_token():
+                return _static_token()
+            raise
+    if _static_token():
+        return _static_token()
+    raise ZohoError("Zoho not configured: set ZOHO_REFRESH_TOKEN (+ client id/secret) "
+                    "or ZOHO_ACCESS_TOKEN.")
 
 
 def get(path: str, params: dict | None = None) -> dict:
@@ -166,8 +179,9 @@ def selftest() -> dict:
         return {"ok": False, "error": "Set ZOHO_ACCESS_TOKEN (quick test) OR "
                                       "ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / "
                                       "ZOHO_REFRESH_TOKEN (permanent)."}
-    # Temporary access-token mode: verify it with a tiny real API call.
-    if _static_token():
+
+    def _static_check(extra_note: str = "") -> dict:
+        """Verify a directly-supplied access token with a tiny real Leads call."""
         try:
             import httpx
             with httpx.Client(timeout=30.0) as client:
@@ -177,22 +191,28 @@ def selftest() -> dict:
             if r.status_code < 400:
                 return {"ok": True, "mode": "static_access_token",
                         "api_domain": _api_domain(),
-                        "note": "Temporary access token works (expires ~1h). "
-                                "Set ZOHO_REFRESH_TOKEN for a permanent connection."}
+                        "note": (extra_note + "Access token works (expires ~1h). Set a "
+                                 "working ZOHO_REFRESH_TOKEN for a permanent connection.").strip()}
             return {"ok": False, "mode": "static_access_token",
                     "error": f"Access token rejected (HTTP {r.status_code}): {r.text[:200]}",
                     "hint": "The token likely expired (they last ~1h) or lacks the "
                             "Leads read scope. Paste a fresh one."}
         except Exception as exc:
             return {"ok": False, "mode": "static_access_token", "error": str(exc)}
-    try:
-        _refresh()
-        return {
-            "ok": True,
-            "accounts_url": _accounts_url(),
-            "api_domain": _api_domain(),
-            "expires_in_seconds": round(_cache["expires_at"] - time.time()),
-            "token_length": len(_cache["access_token"] or ""),
-        }
-    except Exception as exc:
-        return {"ok": False, "error": str(exc), "accounts_url": _accounts_url()}
+
+    # Prefer the durable refresh flow when it's configured.
+    if _has_refresh_trio():
+        try:
+            _refresh()
+            return {"ok": True, "mode": "refresh_token",
+                    "accounts_url": _accounts_url(), "api_domain": _api_domain(),
+                    "expires_in_seconds": round(_cache["expires_at"] - time.time())}
+        except Exception as exc:
+            if _static_token():
+                return _static_check(f"Refresh token failed ({exc}); using access token. ")
+            return {"ok": False, "mode": "refresh_token", "error": str(exc),
+                    "accounts_url": _accounts_url()}
+    # Access-token-only mode.
+    if _static_token():
+        return _static_check()
+    return {"ok": False, "error": "No usable Zoho credentials."}
