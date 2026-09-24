@@ -143,6 +143,8 @@ def get(path: str, params: dict | None = None) -> dict:
     resp = _call(access_token())
     if resp.status_code == 401:  # token rejected -> force refresh once
         resp = _call(_refresh())
+    if resp.status_code == 204:  # Zoho returns 204 for "no records match"
+        return {"data": [], "info": {"more_records": False}}
     if resp.status_code >= 400:
         raise ZohoError(f"Zoho API {resp.status_code} on {path}: {resp.text[:300]}")
     return resp.json()
@@ -186,8 +188,9 @@ def selftest() -> dict:
             import httpx
             q = ("select Lead_Source from Leads where Created_Time > "
                  "'2000-01-01T00:00:00+05:30' limit 1")
+            ver = (os.environ.get("ZOHO_API_VERSION") or "v8").strip().lstrip("/")
             with httpx.Client(timeout=30.0) as client:
-                r = client.post(f"{_api_domain()}/crm/v3/coql",
+                r = client.post(f"{_api_domain()}/crm/{ver}/coql",
                                 json={"select_query": q},
                                 headers={"Authorization": f"Zoho-oauthtoken {access_token()}"})
             if r.status_code < 400 or r.status_code == 204:

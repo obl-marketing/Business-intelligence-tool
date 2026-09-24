@@ -86,9 +86,14 @@ def _where(date_field_key, start, end, *, source=None, sub_source=None, stage=No
     return " and ".join(p for p in parts if p)
 
 
+def _api_version() -> str:
+    # Zoho COQL endpoint version; v8 is current (override via ZOHO_API_VERSION).
+    return (os.environ.get("ZOHO_API_VERSION") or "v8").strip().lstrip("/")
+
+
 def _coql(query: str) -> dict:
     import zoho_client
-    return zoho_client.post("crm/v3/coql", {"select_query": query})
+    return zoho_client.post(f"crm/{_api_version()}/coql", {"select_query": query})
 
 
 def _rows(query: str) -> list[dict]:
