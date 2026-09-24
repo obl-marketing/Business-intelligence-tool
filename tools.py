@@ -1139,9 +1139,9 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
     except ValueError as e:
         return json.dumps({"error": f"Invalid argument: {e}"})
     except Exception as e:  # GA4 API errors (auth, quota, bad property...)
-        return json.dumps({
-            "error": f"{type(e).__name__}: {e}",
-            "hint": "If this is a GA4 permission/auth error, verify the service account "
-                    "has Viewer access on the property, the Analytics Data API is enabled, "
-                    "and GA4_PROPERTY_ID is the numeric property ID (not the G-XXXX measurement ID).",
-        })
+        hint = ("If this is an auth error, check that source's credentials/scopes. "
+                "GA4: service account has Viewer access, the Analytics Data API is "
+                "enabled, and GA4_PROPERTY_ID is the numeric property ID (not G-XXXX). "
+                "Zoho: the token is valid and has the required scopes, INCLUDING "
+                "ZohoCRM.coql.READ (needed for the leads/deals tools).")
+        return json.dumps({"error": f"{type(e).__name__}: {e}", "hint": hint})

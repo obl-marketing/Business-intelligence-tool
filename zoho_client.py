@@ -180,6 +180,25 @@ def selftest() -> dict:
                                       "ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / "
                                       "ZOHO_REFRESH_TOKEN (permanent)."}
 
+    def _coql_probe() -> dict:
+        """Verify COQL works (separate scope: ZohoCRM.coql.READ) with a tiny query."""
+        try:
+            import httpx
+            q = ("select Lead_Source from Leads where Created_Time > "
+                 "'2000-01-01T00:00:00+05:30' limit 1")
+            with httpx.Client(timeout=30.0) as client:
+                r = client.post(f"{_api_domain()}/crm/v3/coql",
+                                json={"select_query": q},
+                                headers={"Authorization": f"Zoho-oauthtoken {access_token()}"})
+            if r.status_code < 400 or r.status_code == 204:
+                return {"coql_ok": True, "status": r.status_code}
+            return {"coql_ok": False, "status": r.status_code, "body": r.text[:300],
+                    "hint": "COQL rejected. A 401/OAUTH_SCOPE_MISMATCH means the token "
+                            "lacks ZohoCRM.coql.READ - regenerate it WITH that scope "
+                            "alongside the module read scopes."}
+        except Exception as exc:
+            return {"coql_ok": False, "error": str(exc)}
+
     def _static_check(extra_note: str = "") -> dict:
         """Verify a directly-supplied access token with a tiny real Leads call."""
         try:
@@ -190,7 +209,7 @@ def selftest() -> dict:
                                headers={"Authorization": f"Zoho-oauthtoken {_static_token()}"})
             if r.status_code < 400:
                 return {"ok": True, "mode": "static_access_token",
-                        "api_domain": _api_domain(),
+                        "api_domain": _api_domain(), "coql": _coql_probe(),
                         "note": (extra_note + "Access token works (expires ~1h). Set a "
                                  "working ZOHO_REFRESH_TOKEN for a permanent connection.").strip()}
             return {"ok": False, "mode": "static_access_token",
@@ -206,7 +225,8 @@ def selftest() -> dict:
             _refresh()
             return {"ok": True, "mode": "refresh_token",
                     "accounts_url": _accounts_url(), "api_domain": _api_domain(),
-                    "expires_in_seconds": round(_cache["expires_at"] - time.time())}
+                    "expires_in_seconds": round(_cache["expires_at"] - time.time()),
+                    "coql": _coql_probe()}
         except Exception as exc:
             if _static_token():
                 return _static_check(f"Refresh token failed ({exc}); using access token. ")
