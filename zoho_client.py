@@ -181,61 +181,55 @@ def selftest() -> dict:
         return {"ok": False, "error": "Set ZOHO_ACCESS_TOKEN (quick test) OR "
                                       "ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / "
                                       "ZOHO_REFRESH_TOKEN (permanent)."}
+    ver = (os.environ.get("ZOHO_API_VERSION") or "v8").strip().lstrip("/")
 
-    def _coql_probe() -> dict:
-        """Verify COQL works (separate scope: ZohoCRM.coql.READ) with a tiny query."""
+    # 1) Obtain an access token (proves the token/refresh flow itself works).
+    try:
+        tok = access_token()
+    except Exception as exc:
+        return {"ok": False, "error": f"Could not obtain an access token: {exc}",
+                "accounts_url": _accounts_url()}
+    mode = "refresh_token" if _has_refresh_trio() else "static_access_token"
+
+    import httpx
+
+    # 2) Probe a plain RECORDS read (needs ZohoCRM.modules.leads.READ).
+    def _records_probe() -> dict:
         try:
-            import httpx
+            with httpx.Client(timeout=30.0) as client:
+                r = client.get(f"{_api_domain()}/crm/{ver}/Leads",
+                               params={"fields": "id", "per_page": 1},
+                               headers={"Authorization": f"Zoho-oauthtoken {tok}"})
+            return {"records_ok": r.status_code < 400 or r.status_code == 204,
+                    "status": r.status_code, "body": (r.text or "")[:300]}
+        except Exception as exc:
+            return {"records_ok": False, "error": str(exc)}
+
+    # 3) Probe COQL (needs the separate ZohoCRM.coql.READ scope).
+    def _coql_probe() -> dict:
+        try:
             q = ("select Lead_Source from Leads where Created_Time > "
                  "'2000-01-01T00:00:00+05:30' limit 1")
-            ver = (os.environ.get("ZOHO_API_VERSION") or "v8").strip().lstrip("/")
             with httpx.Client(timeout=30.0) as client:
                 r = client.post(f"{_api_domain()}/crm/{ver}/coql",
                                 json={"select_query": q},
-                                headers={"Authorization": f"Zoho-oauthtoken {access_token()}"})
-            if r.status_code < 400 or r.status_code == 204:
-                return {"coql_ok": True, "status": r.status_code}
-            return {"coql_ok": False, "status": r.status_code, "body": r.text[:300],
-                    "hint": "COQL rejected. A 401/OAUTH_SCOPE_MISMATCH means the token "
-                            "lacks ZohoCRM.coql.READ - regenerate it WITH that scope "
-                            "alongside the module read scopes."}
+                                headers={"Authorization": f"Zoho-oauthtoken {tok}"})
+            return {"coql_ok": r.status_code < 400 or r.status_code == 204,
+                    "status": r.status_code, "body": (r.text or "")[:300]}
         except Exception as exc:
             return {"coql_ok": False, "error": str(exc)}
 
-    def _static_check(extra_note: str = "") -> dict:
-        """Verify a directly-supplied access token with a tiny real Leads call."""
-        try:
-            import httpx
-            with httpx.Client(timeout=30.0) as client:
-                r = client.get(f"{_api_domain()}/crm/v3/Leads",
-                               params={"fields": "id", "per_page": 1},
-                               headers={"Authorization": f"Zoho-oauthtoken {_static_token()}"})
-            if r.status_code < 400:
-                return {"ok": True, "mode": "static_access_token",
-                        "api_domain": _api_domain(), "coql": _coql_probe(),
-                        "note": (extra_note + "Access token works (expires ~1h). Set a "
-                                 "working ZOHO_REFRESH_TOKEN for a permanent connection.").strip()}
-            return {"ok": False, "mode": "static_access_token",
-                    "error": f"Access token rejected (HTTP {r.status_code}): {r.text[:200]}",
-                    "hint": "The token likely expired (they last ~1h) or lacks the "
-                            "Leads read scope. Paste a fresh one."}
-        except Exception as exc:
-            return {"ok": False, "mode": "static_access_token", "error": str(exc)}
-
-    # Prefer the durable refresh flow when it's configured.
-    if _has_refresh_trio():
-        try:
-            _refresh()
-            return {"ok": True, "mode": "refresh_token",
-                    "accounts_url": _accounts_url(), "api_domain": _api_domain(),
-                    "expires_in_seconds": round(_cache["expires_at"] - time.time()),
-                    "coql": _coql_probe()}
-        except Exception as exc:
-            if _static_token():
-                return _static_check(f"Refresh token failed ({exc}); using access token. ")
-            return {"ok": False, "mode": "refresh_token", "error": str(exc),
-                    "accounts_url": _accounts_url()}
-    # Access-token-only mode.
-    if _static_token():
-        return _static_check()
-    return {"ok": False, "error": "No usable Zoho credentials."}
+    records = _records_probe()
+    coql = _coql_probe()
+    result = {"ok": True, "mode": mode, "api_domain": _api_domain(),
+              "api_version": ver, "records": records, "coql": coql}
+    if records.get("records_ok") and not coql.get("coql_ok"):
+        result["diagnosis"] = ("Records read works but COQL is blocked -> the token "
+                               "lacks ZohoCRM.coql.READ. Either add that scope, or "
+                               "STARS can use the records API instead (no COQL).")
+    elif not records.get("records_ok"):
+        result["diagnosis"] = ("Even a plain records read failed -> the token has no "
+                               "CRM read scope. Regenerate it with "
+                               "ZohoCRM.modules.leads.READ and ZohoCRM.modules.deals.READ "
+                               "(add ZohoCRM.coql.READ too).")
+    return result
