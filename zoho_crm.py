@@ -129,8 +129,10 @@ def _agg_count(module: str, where: str) -> int:
 
 
 def _agg_breakdown(module: str, dim_field: str, where: str, limit: int = 200) -> list[dict]:
+    # NB: Zoho COQL rejects the same aggregate in SELECT and ORDER BY
+    # ("duplicate aggregate function"), so we sort in Python below instead.
     q = (f"select {dim_field}, COUNT(id) from {module} where {where} "
-         f"group by {dim_field} order by COUNT(id) desc limit {limit}")
+         f"group by {dim_field} limit {limit}")
     out = []
     for r in _rows(q):
         label = r.get(dim_field)
