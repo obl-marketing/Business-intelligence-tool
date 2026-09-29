@@ -592,7 +592,7 @@ TOOL_SCHEMAS = [
                 "date_field": {"type": "string", "enum": ["created", "modified"], "description": "Which date to filter on (default 'created')."},
                 "source": {"type": "string", "description": "Optional Lead_Source value, e.g. 'Website'. Use discover_zoho_values to get exact spelling."},
                 "sub_source": {"type": "string", "description": "Optional Sub_Source value."},
-                "group_by": {"type": "string", "enum": ["source", "sub_source"], "description": "Omit for a total; set to break down by source or sub-source."},
+                "group_by": {"type": "string", "description": "Omit for a total. Use 'source', 'sub_source', 'owner', or ANY field API name from discover_zoho_fields (e.g. a salesperson-email field) to break down by it."},
             },
             "required": ["start_date", "end_date"],
         },
@@ -617,9 +617,27 @@ TOOL_SCHEMAS = [
                 "source": {"type": "string", "description": "Optional Lead_Source value."},
                 "sub_source": {"type": "string", "description": "Optional Sub_Source value."},
                 "stage": {"type": "string", "description": "Optional Stage value (e.g. 'Closed Won')."},
-                "group_by": {"type": "string", "enum": ["stage", "source", "sub_source"], "description": "Omit for a total; set to break down."},
+                "group_by": {"type": "string", "description": "Omit for a total. Use 'stage', 'source', 'sub_source', 'owner', or ANY field API name from discover_zoho_fields (e.g. a salesperson-email field) to break down by it — e.g. group_by the salesperson field to see deals per rep."},
             },
             "required": ["start_date", "end_date"],
+        },
+    },
+    {
+        "name": "discover_zoho_fields",
+        "description": (
+            "List the REAL field API names of a Zoho module (Leads or Deals) so you "
+            "can find fields the fixed tools don't name yet — e.g. the salesperson / "
+            "owner / sales-person-email field, or a status field. It highlights likely "
+            "salesperson and status fields. Use it whenever the user asks to break down "
+            "or filter by something not covered by source/sub_source/stage (like 'which "
+            "salesperson has these leads'), then pass the chosen api_name as `group_by` "
+            "to query_zoho_leads / query_zoho_deals."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "module": {"type": "string", "enum": ["leads", "deals"], "description": "Which module (default deals)."},
+            },
         },
     },
     {
@@ -1131,6 +1149,11 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                 module=args.get("module", "leads"), field=args["field"],
                 start=args.get("start_date"), end=args.get("end_date"),
             ))
+
+        if name == "discover_zoho_fields":
+            import zoho_crm
+            return json.dumps(zoho_crm.discover_fields(
+                module=args.get("module", "deals")))
 
         return json.dumps({"error": f"Unknown tool: {name}"})
 

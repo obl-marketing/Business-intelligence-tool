@@ -73,8 +73,17 @@ Therefore the tools **self-discover** the schema instead of assuming standard na
   Deals = post-qualification subset; qualification rate = Deals ÷ Leads. Leads =
   pre-qualification universe.
 - **Don't guess source/stage spelling** — `discover_zoho_values` lists the real
-  Lead_Source/Sub_Source/Stage values. Needs one live validation pass once the refresh
-  token is set (COQL aggregate/field behaviour verified against the live property).
+  Lead_Source/Sub_Source/Stage values.
+- **LIVE & validated** on the .com DC via COQL v8 (`ZOHO_API_VERSION=v8`). Gotchas
+  fixed: COQL needs its own `ZohoCRM.coql.READ` scope; Zoho rejects the same aggregate
+  in SELECT and ORDER BY (so `_agg_breakdown` sorts in Python, no ORDER BY); we trust
+  the token's own `api_domain`.
+- **Any field beyond source/sub_source/stage** (salesperson/owner/status): call
+  `discover_zoho_fields(module)` to get real field API names, then pass the api_name as
+  `group_by` to query_zoho_leads/deals (group_by now accepts any raw field name, plus
+  the keys source/sub_source/stage/owner). Per-rep stale-lead analysis = Deals +
+  `date_field='modified'` + `stage` filter + `group_by=<salesperson field>`.
+- Prefer the live Zoho tools over any uploaded CRM spreadsheet exports.
 
 **Policy: don't rely on hand-written event definitions.** STARS discovers events itself.
 Keep the Knowledge Base for business context it CANNOT infer from GA4 (page-structure

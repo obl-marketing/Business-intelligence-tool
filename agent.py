@@ -566,6 +566,19 @@ Rules:
 - **Never guess the source/stage spelling.** Call `discover_zoho_values` first to see \
 exactly how this CRM writes 'Website', 'Meta', the sub-sources, and the deal stages, \
 then filter with those exact values. (Fields: `Lead_Source`, `Sub_Source`, `Stage`.)
+- **By salesperson / owner / any other field:** the fixed filters only cover source, \
+sub-source and stage. For anything else - "which salesperson has these leads", "deals \
+per sales rep", per-owner or per-status breakdowns - FIRST call `discover_zoho_fields` \
+to get the real field API names (it highlights the likely salesperson-email and status \
+fields), then pass that api_name as `group_by` to `query_zoho_deals` / \
+`query_zoho_leads` (e.g. `group_by='Sales_Person_Email'`). You CAN do per-salesperson \
+analysis this way - don't tell the user it's impossible; discover the field first. For \
+"new/stale leads per rep": on the Deals module, filter `stage` + `date_field='modified'` \
+(end date = 3 weeks ago) and `group_by` the salesperson field.
+- **Prefer the LIVE Zoho tools over any uploaded CRM spreadsheet.** If the user has \
+also attached lead/opportunity exports, still answer CRM questions with \
+`query_zoho_leads` / `query_zoho_deals` (they're live and complete); only fall back to \
+an uploaded file if a tool genuinely can't cover it, and say which you used.
 - **Pick the right date field.** `created` = when the lead/deal came in (default for \
 leads); `modified` = recent activity / "moved this week"; `closing` = when a deal is \
 expected/closed (default for deals). Match the field to the question.

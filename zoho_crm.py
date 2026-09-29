@@ -30,6 +30,7 @@ def _deals_module() -> str: return _cfg("ZOHO_DEALS_MODULE", "Deals")
 def _source_field() -> str: return _cfg("ZOHO_SOURCE_FIELD", "Lead_Source")
 def _subsource_field() -> str: return _cfg("ZOHO_SUBSOURCE_FIELD", "Sub_Source")
 def _stage_field() -> str: return _cfg("ZOHO_STAGE_FIELD", "Stage")
+def _owner_field() -> str: return _cfg("ZOHO_OWNER_FIELD", "Owner")
 
 # date_field key -> API name. Closing_Date is a DATE; the others are DATETIME.
 _DATE_FIELDS = {"created": "Created_Time", "modified": "Modified_Time",
@@ -39,6 +40,15 @@ _DATETIME_KEYS = {"created", "modified"}
 # Fields exposable to discover_values, per module.
 _DISCOVERABLE = {"source": _source_field, "sub_source": _subsource_field,
                  "stage": _stage_field}
+
+
+def _dim_field(group_by: str) -> str:
+    """Resolve a group_by key to a field API name. Friendly keys map to their
+    configured field; anything else is treated as a RAW field API name (e.g.
+    a salesperson-email field discovered via discover_zoho_fields)."""
+    known = {"source": _source_field(), "sub_source": _subsource_field(),
+             "stage": _stage_field(), "owner": _owner_field()}
+    return known.get(group_by, group_by)
 
 
 def is_active() -> bool:
@@ -170,10 +180,10 @@ def leads(start: str, end: str, date_field: str = "created",
             "filters": {"source": source, "sub_source": sub_source},
             "counting_note": "ALL leads incl. converted (converted leads stay in "
                              "Leads). This is the true total; do NOT add Deals."}
-    if group_by in ("source", "sub_source"):
-        dim = _source_field() if group_by == "source" else _subsource_field()
+    if group_by:
+        dim = _dim_field(group_by)
         rows = _agg_breakdown(_leads_module(), dim, where)
-        return {**base, "group_by": group_by, "rows": rows,
+        return {**base, "group_by": group_by, "group_by_field": dim, "rows": rows,
                 "total": sum(r["count"] for r in rows)}
     return {**base, "total_leads": _agg_count(_leads_module(), where)}
 
@@ -197,11 +207,10 @@ def deals(start: str, end: str, date_field: str = "closing",
             "counting_note": "Deals = post-qualification (leads that became "
                              "opportunities). Qualification rate = Deals / Leads "
                              "for the same window & source."}
-    if group_by in ("stage", "source", "sub_source"):
-        dim = {"stage": _stage_field(), "source": _source_field(),
-               "sub_source": _subsource_field()}[group_by]
+    if group_by:
+        dim = _dim_field(group_by)
         rows = _agg_breakdown(_deals_module(), dim, where)
-        return {**base, "group_by": group_by, "rows": rows,
+        return {**base, "group_by": group_by, "group_by_field": dim, "rows": rows,
                 "total": sum(r["count"] for r in rows)}
     return {**base, "total_deals": _agg_count(_deals_module(), where)}
 
@@ -233,3 +242,41 @@ def discover_values(module: str = "leads", field: str = "source",
     return {"module": mod, "field": dim, "window": {"start": start, "end": end},
             "distinct_values": rows,
             "note": "Use these exact values when filtering by source/stage."}
+
+
+def discover_fields(module: str = "deals") -> dict:
+    """List the REAL field API names of a module (Leads or Deals) via Zoho's
+    fields metadata, so we can find the exact salesperson-email field, a status
+    field, etc. instead of guessing - then pass that api_name as group_by to
+    query_zoho_leads / query_zoho_deals. Falls back gracefully if the metadata
+    scope isn't granted."""
+    if (g := _guard()):
+        return g
+    import zoho_client
+    mod = _deals_module() if module.lower().startswith("deal") else _leads_module()
+    try:
+        payload = zoho_client.get(f"crm/{_api_version()}/settings/fields",
+                                  params={"module": mod})
+    except Exception as exc:
+        return {"module": mod, "error": str(exc),
+                "hint": "Reading field metadata needs the ZohoCRM.settings.fields.READ "
+                        "(or ZohoCRM.settings.READ) scope. Either add it to the token, "
+                        "or just tell me the exact API name of the salesperson-email and "
+                        "status fields and I'll use them directly."}
+    fields = payload.get("fields") or []
+    all_fields = [{"api_name": f.get("api_name"), "label": f.get("field_label"),
+                   "type": f.get("data_type")} for f in fields if f.get("api_name")]
+    low = lambda s: (s or "").lower()
+    likely_salesperson = [f for f in all_fields if any(
+        k in low(f["api_name"]) + low(f["label"])
+        for k in ("owner", "sales", "assign", "agent", "rep", "fls", "email"))]
+    likely_status = [f for f in all_fields if any(
+        k in low(f["api_name"]) + low(f["label"])
+        for k in ("stage", "status", "state"))]
+    return {"module": mod, "field_count": len(all_fields),
+            "likely_salesperson_fields": likely_salesperson,
+            "likely_status_fields": likely_status,
+            "all_fields": all_fields,
+            "note": "Pick the api_name of the salesperson-email field and pass it as "
+                    "group_by to query_zoho_deals (e.g. group_by='Sales_Person_Email') "
+                    "to see deals per rep. Same for a status field."}
