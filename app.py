@@ -147,8 +147,8 @@ PROVIDER_DEFAULT_MODEL = {
     "gemini": "gemini-2.5-flash",
 }
 
-st.set_page_config(page_title="STARS — Self-Trained Analyst for Reporting & Strategy",
-                   page_icon="⭐", layout="wide")
+st.set_page_config(page_title="Drishyam — AI data analyst",
+                   page_icon="👁️", layout="wide")
 
 # Shared-password gate (active only when APP_PASSWORD is set in secrets/env)
 import auth
@@ -157,8 +157,8 @@ _USER = auth.current_user()
 
 # ---------- Sidebar ----------
 with st.sidebar:
-    st.title("STARS ⭐")
-    st.caption("**S**elf-**T**rained **A**nalyst for **R**eporting & **S**trategy")
+    st.title("Drishyam 👁️")
+    st.caption("Your AI data analyst for marketing")
     auth.logout_button()
     auth.password_change_ui()
     auth.manage_users_ui()
@@ -627,7 +627,7 @@ def _render_blocks(blocks: list[dict], seed: str = "live") -> None:
 # Download the CURRENT conversation (built from live session so it includes the
 # newest turn even before the sidebar list refreshes).
 if st.session_state["messages"]:
-    _cur_title = "STARS chat"
+    _cur_title = "Drishyam chat"
     _cur_id = st.session_state.get("active_chat_id")
     if _cur_id:
         for _c in chat_store.list_chats(_USER):

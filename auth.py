@@ -82,7 +82,7 @@ def require_login() -> None:
         user_store.ensure_bootstrapped(users)  # seed roster from APP_USERS once
         if st.session_state.get("_authed"):
             return
-        st.markdown("## 🔒 STARS")
+        st.markdown("## 🔒 Drishyam")
         st.caption("Sign in with your work email.")
         with st.form("login"):
             email = st.text_input("Email")
@@ -101,7 +101,7 @@ def require_login() -> None:
 
     if st.session_state.get("_authed"):
         return
-    st.markdown("## 🔒 STARS")
+    st.markdown("## 🔒 Drishyam")
 
     # Single shared-password mode
     st.caption("Enter the team password to continue.")
