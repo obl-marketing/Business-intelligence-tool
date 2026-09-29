@@ -498,12 +498,13 @@ def leads(start: str, end: str, date_field: str = "created",
 # Public: Deals (Opportunities)
 # ---------------------------------------------------------------
 
-def deals(start: str, end: str, date_field: str = "closing",
+def deals(start: str, end: str, date_field: str = "created",
           source=None, sub_source=None, stage=None,
           group_by: str | None = None, metric: str = "count",
           sum_field: str | None = None, filters: dict | None = None) -> dict:
-    """Deals/Opportunities count/sum (or breakdown). date_field: 'closing'
-    (default), 'created' or 'modified'. metric: 'count' (default) or 'sum' (needs
+    """Deals/Opportunities count/sum (or breakdown). date_field: 'created'
+    (default), 'closing' (closed-lead questions only) or 'modified'. metric:
+    'count' (default) or 'sum' (needs
     sum_field, e.g. 'volume'/'amount'/'won_amount'). group_by: None, 'month',
     'stage', 'salesperson', 'status', 'dealer', 'zone', 'branch', or any field.
     filters: equality filters on any field, e.g. {'zone':'North-1'}. Deals =
@@ -512,12 +513,71 @@ def deals(start: str, end: str, date_field: str = "closing",
         return g
     base = {"module": _deals_module(), "date_field": _DATE_FIELDS.get(date_field),
             "window": {"start": start, "end": end},
-            "counting_note": "Deals = post-qualification. Qualification rate = "
-                             "Deals / Leads for the same window & source."}
+            "counting_note": "Deals = post-qualification (qualified set). Total leads "
+                             "received = Leads + Deals; qualification rate = Deals / "
+                             "(Leads + Deals) for the same window & source."}
     return _run(_deals_module(), start, end, date_field=date_field,
                 sub_source_field=_deals_subsource_field(), source=source,
                 sub_source=sub_source, stage=stage, filters=filters,
                 group_by=group_by, metric=metric, sum_field=sum_field, base=base)
+
+
+# ---------------------------------------------------------------
+# Public: TOTAL leads received = Leads module + Deals module (the CRM owner's rule:
+# a qualified lead moves into Deals, so the two modules are separate sets and the
+# true "leads received" is their sum). Always returns the split for transparency.
+# ---------------------------------------------------------------
+
+def total_leads(start: str, end: str, date_field: str = "created",
+                source=None, sub_source=None, group_by: str | None = None) -> dict:
+    """Total leads RECEIVED in a window = Leads-module count + Deals-module count
+    (by creation date by default). Use for "how many leads did we get/receive".
+    Returns the per-module breakdown plus the combined total. group_by: None,
+    'month', 'source', 'sub_source' (merged across both modules)."""
+    if (g := _guard()):
+        return g
+    lead = leads(start, end, date_field=date_field, source=source,
+                 sub_source=sub_source, group_by=group_by)
+    deal = deals(start, end, date_field=date_field, source=source,
+                 sub_source=sub_source, group_by=group_by)
+    for part in (lead, deal):  # surface a hard failure rather than silently under-count
+        if isinstance(part, dict) and part.get("error"):
+            return {"error": part["error"], "leads": lead, "deals": deal}
+
+    base = {"window": {"start": start, "end": end},
+            "date_field": _DATE_FIELDS.get(date_field),
+            "counting_note": "Total leads received = Leads module + Deals module "
+                             "(separate record sets per the CRM owner's rule). "
+                             "Breakdown shown for transparency.",
+            "applied_filters": {k: v for k, v in
+                                (("source", source), ("sub_source", sub_source)) if v}}
+    lt, dt = round(lead.get("total", 0), 2), round(deal.get("total", 0), 2)
+
+    if group_by == "month":
+        lm = {r["month"]: r.get("value", 0) for r in lead.get("rows", [])}
+        dm = {r["month"]: r.get("value", 0) for r in deal.get("rows", [])}
+        rows = [{"month": lbl, "leads": round(lm.get(lbl, 0), 2),
+                 "deals": round(dm.get(lbl, 0), 2),
+                 "total": round(lm.get(lbl, 0) + dm.get(lbl, 0), 2)}
+                for lbl, _, _ in _months(start, end)]
+        return {**base, "group_by": "month", "rows": rows,
+                "leads_module_total": lt, "deals_module_total": dt,
+                "total_received": round(lt + dt, 2)}
+    if group_by:
+        def _rowmap(res):
+            return {r["value"]: r.get("count", r.get("value_sum", 0))
+                    for r in res.get("rows", [])}
+        lm, dm = _rowmap(lead), _rowmap(deal)
+        keys = list(dict.fromkeys(list(lm) + list(dm)))
+        rows = [{"value": k, "leads": round(lm.get(k, 0), 2),
+                 "deals": round(dm.get(k, 0), 2),
+                 "total": round(lm.get(k, 0) + dm.get(k, 0), 2)} for k in keys]
+        rows.sort(key=lambda x: x["total"], reverse=True)
+        return {**base, "group_by": group_by, "rows": rows,
+                "leads_module_total": lt, "deals_module_total": dt,
+                "total_received": round(lt + dt, 2)}
+    return {**base, "leads_module_count": lt, "deals_module_count": dt,
+            "total_received": round(lt + dt, 2)}
 
 
 # ---------------------------------------------------------------

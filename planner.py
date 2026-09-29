@@ -84,14 +84,21 @@ def _zoho_facts(question: str) -> dict | None:
                               "channel-or-source -> LEADS. If genuinely ambiguous which "
                               "module, tell the agent to ask ONE short clarifying "
                               "question offering both, rather than hunting blindly.",
-            "counting_rule": "TOTAL leads = Leads count (never Leads+Deals); Deals = "
-                             "qualified subset; qualification rate = Deals / Leads.",
+            "counting_rule": "TOTAL leads RECEIVED = Leads module + Deals module (a "
+                             "qualified lead moves into Deals, so the modules are separate "
+                             "sets) -> use query_total_leads, which returns the split + "
+                             "combined total. Qualification rate = Deals / (Leads+Deals).",
             "friendly_group_by_keys": ["month", "salesperson", "status", "stage",
                                        "source", "sub_source", "dealer", "zone", "branch"],
             "how_to_query": "Filters (zone/branch/salesperson/status/dealer/category) go "
                             "in the `filters` dict, NOT top-level. 'How much volume/"
                             "amount/revenue' → metric='sum' + sum_field (volume|amount|"
                             "won_amount). Time series → group_by='month'.",
+            "date_and_stage_rules": "DATE FIELD: default 'created'; use 'closing' ONLY "
+                            "for CLOSED-lead questions (won/lost/junk); 'modified' for "
+                            "recently-moved. OPEN/PENDING = Stage Category New + Active "
+                            "(filters={'status':['New','Active']}, date_field='created'). "
+                            "CLOSED won/lost = date_field='closing' + stage filter.",
             "prioritise_populated": "Prefer fields that are actually filled; if unsure "
                                     "which column a request maps to, call zoho_field_usage "
                                     "to check fill-rate and pick the populated one, or ask "

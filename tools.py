@@ -575,14 +575,14 @@ TOOL_SCHEMAS = [
     {
         "name": "query_zoho_leads",
         "description": (
-            "Count LEADS in Zoho CRM (or break them down by source/sub-source). Use "
-            "for 'how many leads from the website', 'leads by sub-source', 'website "
-            "vs Meta leads'. IMPORTANT: the Leads module contains ALL leads including "
-            "converted ones (a qualified lead is flagged Converted but STAYS in Leads), "
-            "so this is the true TOTAL - never add Deals to it. Filter by `source` "
-            "(Lead_Source, e.g. 'Website') and/or `sub_source` (Sub_Source). Choose the "
-            "date field: 'created' (when the lead came in - default) or 'modified'. If "
-            "unsure of the exact source value, call discover_zoho_values first."
+            "Count LEADS in the Zoho Leads module (pre-qualification / not-yet-qualified "
+            "leads), or break them down by source/sub-source. Good for source/channel "
+            "analysis. NOTE: for the TOTAL leads RECEIVED ('how many leads did we get'), "
+            "do NOT use this alone - use `query_total_leads`, because a qualified lead "
+            "moves into the Deals module, so total received = Leads + Deals. Filter by "
+            "`source` (Lead_Source, e.g. 'Website') and/or `sub_source` (Sub_Source). "
+            "Date field: 'created' (default) or 'modified'. If unsure of the exact source "
+            "value, call discover_zoho_values first."
         ),
         "input_schema": {
             "type": "object",
@@ -601,22 +601,48 @@ TOOL_SCHEMAS = [
         },
     },
     {
-        "name": "query_zoho_deals",
+        "name": "query_total_leads",
         "description": (
-            "Count DEALS / Opportunities in Zoho CRM (or break them down by stage / "
-            "source / sub-source). Deals are the POST-qualification subset of leads, so "
-            "use this for pipeline, stages, and qualification analysis (qualification "
-            "rate = Deals ÷ Leads for the same window & source). Filter by `stage`, "
-            "`source`, `sub_source`. Date field: 'closing' (default), 'created' or "
-            "'modified' - use 'modified' for 'deals that moved recently'. Call "
-            "discover_zoho_values to see the exact stage names."
+            "TOTAL leads RECEIVED in a window = Leads module + Deals/Opportunity module "
+            "(counted separately and summed). Use this for 'how many leads did we get / "
+            "receive', 'total leads last month', 'website leads this quarter'. A "
+            "qualified lead moves from Leads into Deals, so neither module alone is the "
+            "full count - this returns the per-module split AND the combined total "
+            "(always report the split). Defaults to CREATION date. Optional `source` / "
+            "`sub_source` filters and `group_by` ('month', 'source', 'sub_source')."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "start_date": {"type": "string", "description": "YYYY-MM-DD"},
                 "end_date": {"type": "string", "description": "YYYY-MM-DD"},
-                "date_field": {"type": "string", "enum": ["closing", "created", "modified"], "description": "Which date to filter on (default 'closing')."},
+                "date_field": {"type": "string", "enum": ["created", "modified"], "description": "Which date to filter on (default 'created' = when the lead came in)."},
+                "source": {"type": "string", "description": "Optional Lead_Source value, e.g. 'Website'."},
+                "sub_source": {"type": "string", "description": "Optional Sub_Source value."},
+                "group_by": {"type": "string", "description": "Omit for a total. 'month' for a monthly series, or 'source'/'sub_source' to break down (merged across both modules)."},
+            },
+            "required": ["start_date", "end_date"],
+        },
+    },
+    {
+        "name": "query_zoho_deals",
+        "description": (
+            "Count DEALS / Opportunities in Zoho CRM (or break them down by stage / "
+            "source / sub-source). Deals are the POST-qualification subset of leads, so "
+            "use this for pipeline, stages, and qualification analysis (qualification "
+            "rate = Deals ÷ Leads for the same window & source). Filter by `stage`, "
+            "`source`, `sub_source`. DATE FIELD RULE: default 'created'; use 'closing' "
+            "ONLY for CLOSED-lead questions (won/lost/junk); 'modified' for 'deals that "
+            "moved recently'. OPEN/PENDING leads = Stage Category New + Active, i.e. "
+            "filters={\"status\":[\"New\",\"Active\"]} with date_field='created'. Call "
+            "discover_zoho_values to see the exact stage / status names."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "date_field": {"type": "string", "enum": ["created", "closing", "modified"], "description": "Which date to filter on. Default 'created'. Use 'closing' ONLY for closed-lead questions (won/lost/junk); 'modified' for recently-moved deals."},
                 "source": {"type": "string", "description": "Optional Lead_Source value."},
                 "sub_source": {"type": "string", "description": "Optional Sub_Source value."},
                 "stage": {"type": "string", "description": "Optional Stage value (e.g. 'Closed Won')."},
@@ -1170,11 +1196,20 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
             import zoho_crm
             return json.dumps(zoho_crm.deals(
                 args["start_date"], args["end_date"],
-                date_field=args.get("date_field", "closing"),
+                date_field=args.get("date_field", "created"),
                 source=args.get("source"), sub_source=args.get("sub_source"),
                 stage=args.get("stage"), group_by=args.get("group_by"),
                 metric=args.get("metric", "count"), sum_field=args.get("sum_field"),
                 filters=args.get("filters") if isinstance(args.get("filters"), dict) else None,
+            ))
+
+        if name == "query_total_leads":
+            import zoho_crm
+            return json.dumps(zoho_crm.total_leads(
+                args["start_date"], args["end_date"],
+                date_field=args.get("date_field", "created"),
+                source=args.get("source"), sub_source=args.get("sub_source"),
+                group_by=args.get("group_by"),
             ))
 
         if name == "discover_zoho_values":

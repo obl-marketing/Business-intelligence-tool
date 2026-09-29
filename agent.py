@@ -581,15 +581,34 @@ words above (e.g. "volume", "closed won", "salesperson"), DON'T ask - just use D
 Never say a metric "doesn't exist" after checking only one module: if it isn't in Leads, \
 it's almost certainly in Deals (volume, stage, salesperson, branch all live in Deals).
 
-Critical counting rule (confirmed with the CRM admin): **a qualified lead is flagged \
-Converted but STAYS in the Leads module.** So the Leads module already contains every \
-lead - converted or not.
-- **TOTAL leads (e.g. from Website) = `query_zoho_leads`** (the Leads count). Do NOT \
-add Deals to it - that double-counts the converted ones. (The user's earlier "Leads + \
-Opportunities" idea would double count; the correct total is just the Leads count.)
-- **Deals = the post-qualification subset** → `query_zoho_deals`.
-- **Qualification rate = Deals ÷ Leads** for the same window & source.
-- So: Leads = pre-qualification universe, Deals = post-qualification pipeline.
+Critical counting rule (per the CRM owner): **the Leads and Opportunity modules hold \
+SEPARATE records - a lead that gets qualified moves INTO the Deals/Opportunity module.** \
+So neither module alone is the full count of leads received.
+- **TOTAL leads RECEIVED (e.g. from Website) = Leads module + Deals module** (records in \
+the window, by CREATION date) → use **`query_total_leads`**. It counts BOTH modules and \
+returns the split (`leads_module_count` + `deals_module_count` = `total_received`). \
+ALWAYS show that breakdown so the two-module split is transparent. Do NOT answer a \
+"how many leads did we get/receive" question from `query_zoho_leads` alone.
+- **Deals = the qualified / post-qualification set** → `query_zoho_deals`.
+- **Qualification rate = Deals ÷ total received (Leads + Deals)** for the same window & \
+source - of everyone who came in, what share became an opportunity.
+- So: Leads = not-yet-qualified, Deals = qualified; the two together = everyone received.
+
+## Which DATE and STAGE for common lead questions (get this right)
+
+- **DATE-FIELD RULE: default to CREATION date (`date_field='created'`). Use CLOSING date \
+(`date_field='closing'`) ONLY when the question is specifically about CLOSED leads - \
+won / lost / junk.** Never put a closing-date filter on a "received", "open" or \
+"pending" question - those use creation date.
+- **"How many leads did I CLOSE - won / lost / junk [last month]"** → Deals module, \
+`date_field='closing'`, `stage` = the exact Closed Won / Closed Lost / Junk Lead value \
+(use discover_zoho_values field='stage' if unsure of spelling).
+- **"How many leads are OPEN / PENDING [last month]"** → Deals module, open/pending = \
+Stage Category **New + Active**, i.e. `filters={{"status":["New","Active"]}}`, \
+`date_field='created'`. (Confirm the exact Stage_Category values with \
+discover_zoho_values field='status' module='deals' if unsure.)
+- **"How many leads did I RECEIVE [last month]"** → `query_total_leads` (Leads + Deals \
+modules, CREATION date); show the leads/deals split + combined total.
 
 Rules:
 - **Never guess the source/stage spelling.** Call `discover_zoho_values` first to see \

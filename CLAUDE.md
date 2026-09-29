@@ -80,10 +80,14 @@ Therefore the tools **self-discover** the schema instead of assuming standard na
   `ZOHO_STAGE_FIELD`=Stage, modules Leads/Deals). Date keys map created→Created_Time,
   modified→Modified_Time, closing→Closing_Date. Data centre is **.com**
   (`ZOHO_ACCOUNTS_URL=https://accounts.zoho.com`).
-- **Counting rule (confirmed):** a converted lead is flagged Converted but STAYS in
-  Leads. So TOTAL leads = the Leads count (never Leads + Deals — that double-counts);
-  Deals = post-qualification subset; qualification rate = Deals ÷ Leads. Leads =
-  pre-qualification universe.
+- **Counting rule (per CRM owner, updated Sept 2026 — supersedes the old "converted
+  stays in Leads" rule):** the Leads and Deals modules are SEPARATE record sets — a
+  qualified lead moves INTO Deals. So **TOTAL leads received = Leads count + Deals count**
+  (creation date) → use the `query_total_leads` tool / `zoho_crm.total_leads()`, which
+  returns the per-module split plus the combined total (always show the split).
+  Qualification rate = Deals ÷ (Leads + Deals). Date-field rule: default **created**;
+  use **closing** ONLY for closed-lead questions (won/lost/junk). Open/pending = Stage
+  Category **New + Active** (`filters={'status':['New','Active']}`, created date).
 - **Don't guess source/stage spelling** — `discover_zoho_values` lists the real
   Lead_Source/Sub_Source/Stage values.
 - **LIVE & validated** on the .com DC via COQL v8 (`ZOHO_API_VERSION=v8`). Gotchas
