@@ -314,28 +314,80 @@ def _months(start: str, end: str) -> list[tuple]:
     return out
 
 
+def _norm_val(x) -> str:
+    return str(x).strip().lower() if x is not None else ""
+
+
+def _matches(row: dict, conds: list[tuple]) -> bool:
+    """True if the row satisfies every (field, value) equality condition. Used by
+    the Python-side filter fallback. String-insensitive; a list value = membership."""
+    for field, value in conds:
+        rv = _norm_val(row.get(field.split(".")[-1]))
+        if isinstance(value, (list, tuple, set)):
+            if rv not in {_norm_val(v) for v in value}:
+                return False
+        elif rv != _norm_val(value):
+            return False
+    return True
+
+
+def _fetch_rows(module: str, sel_fields: list[str], where: str,
+                cap: int = 60000) -> tuple[list[dict], bool]:
+    """Paginate COQL selecting the given fields. Returns (rows, truncated)."""
+    sel = ", ".join(dict.fromkeys(f for f in sel_fields if f)) or "id"
+    out: list[dict] = []
+    offset, page, truncated = 0, 2000, False
+    while offset < cap:
+        try:
+            rows = _rows(f"select {sel} from {module} where {where} "
+                         f"limit {offset}, {page}")
+        except Exception:
+            if offset == 0:  # offset pagination unsupported → single page only
+                rows = _rows(f"select {sel} from {module} where {where} limit {page}")
+                out += rows
+                truncated = len(rows) >= page
+            else:
+                truncated = True
+            break
+        if not rows:
+            break
+        out += rows
+        if len(rows) < page:
+            break
+        offset += page
+    else:
+        truncated = True
+    return out, truncated
+
+
 def _run(module, start, end, *, date_field, sub_source_field, source, sub_source,
          stage, filters, group_by, metric, sum_field, base) -> dict:
     """Shared query engine: COUNT/SUM, arbitrary equality filters, and month or
-    field group-by. Rebuilds the WHERE per month for time series."""
+    field group-by. Tries COQL first; if Zoho rejects the filtered query (some
+    field/measure combinations trip its parser), falls back to fetching the window
+    with a date-only WHERE and filtering + aggregating in Python - so a filter can
+    never silently fail or return unfiltered totals."""
     metric = "sum" if (metric or "count").lower() == "sum" else "count"
     sum_api = _measure_field(sum_field) if metric == "sum" else None
     if metric == "sum" and not sum_api:
         return {**base, "error": "metric='sum' needs sum_field (e.g. volume, amount, won_amount)."}
 
-    parts = []
+    # Structured equality conditions - used to build the COQL WHERE and, if that
+    # fails, to filter rows in Python.
+    conds: list[tuple] = []
     if source:
-        parts.append(_in_or_eq(_source_field(), source))
+        conds.append((_source_field(), source))
     if sub_source:
-        parts.append(_in_or_eq(sub_source_field, sub_source))
+        conds.append((sub_source_field, sub_source))
     if stage:
-        parts.append(_in_or_eq(_stage_field(), stage))
+        conds.append((_stage_field(), stage))
     for k, v in (filters or {}).items():
         if v in (None, ""):
             continue
         fld = sub_source_field if k == "sub_source" else _dim_field(k)
-        parts.append(_in_or_eq(fld, v))
-    parts = [p for p in parts if p]
+        conds.append((fld, v))
+
+    parts = [p for p in (_in_or_eq(f, v) for f, v in conds) if p]
 
     def _where_for(ds, de):
         return " and ".join([_date_where(date_field, ds, de)] + parts)
@@ -345,20 +397,74 @@ def _run(module, start, end, *, date_field, sub_source_field, source, sub_source
                                 (("source", source), ("sub_source", sub_source),
                                  ("stage", stage), *(filters or {}).items()) if v}}
 
-    if group_by == "month":
-        rows = [{"month": lbl, "value": _measure_total(module, _where_for(ms, me), metric, sum_api)}
-                for lbl, ms, me in _months(start, end)]
-        return {**base, "group_by": "month",
-                "rows": rows, "total": round(sum(r["value"] for r in rows), 2)}
+    def _via_coql() -> dict:
+        if group_by == "month":
+            rows = [{"month": lbl,
+                     "value": _measure_total(module, _where_for(ms, me), metric, sum_api)}
+                    for lbl, ms, me in _months(start, end)]
+            return {**base, "group_by": "month",
+                    "rows": rows, "total": round(sum(r["value"] for r in rows), 2)}
+        where = _where_for(start, end)
+        if group_by:
+            dim = sub_source_field if group_by == "sub_source" else _dim_field(group_by)
+            rows = _measure_breakdown(module, dim, where, metric, sum_api)
+            vkey = "value_sum" if metric == "sum" else "count"
+            return {**base, "group_by": group_by, "group_by_field": dim, "rows": rows,
+                    "total": round(sum(r.get(vkey, 0) for r in rows), 2)}
+        return {**base, "total": _measure_total(module, where, metric, sum_api)}
 
-    where = _where_for(start, end)
-    if group_by:
-        dim = sub_source_field if group_by == "sub_source" else _dim_field(group_by)
-        rows = _measure_breakdown(module, dim, where, metric, sum_api)
-        vkey = "value_sum" if metric == "sum" else "count"
-        return {**base, "group_by": group_by, "group_by_field": dim, "rows": rows,
-                "total": round(sum(r.get(vkey, 0) for r in rows), 2)}
-    return {**base, "total": _measure_total(module, where, metric, sum_api)}
+    def _via_python() -> dict:
+        date_api = _DATE_FIELDS.get(date_field, "Created_Time")
+        sel = {f for f, _ in conds}
+        if metric == "sum" and sum_api:
+            sel.add(sum_api)
+        dim = None
+        if group_by == "month":
+            sel.add(date_api)
+        elif group_by:
+            dim = sub_source_field if group_by == "sub_source" else _dim_field(group_by)
+            sel.add(dim)
+        rows, truncated = _fetch_rows(module, list(sel), _date_where(date_field, start, end))
+        rows = [r for r in rows if _matches(r, conds)]
+
+        def _val(r) -> float:
+            return _numf(r.get(sum_api.split(".")[-1])) if metric == "sum" else 1.0
+
+        note = {"compute": "python_filter",
+                "compute_note": "Zoho rejected the filtered COQL query, so rows were "
+                                "fetched for the window and filtered/summed in Python."}
+        if truncated:
+            note["warning"] = ("Row cap hit while fetching the window; totals may be "
+                               "partial. Narrow the date range for an exact figure.")
+        if group_by == "month":
+            buckets: dict[str, float] = {}
+            for r in rows:
+                mk = str(r.get(date_api.split(".")[-1]) or "")[:7]
+                if mk:
+                    buckets[mk] = buckets.get(mk, 0.0) + _val(r)
+            out = [{"month": lbl, "value": round(buckets.get(lbl, 0.0), 2)}
+                   for lbl, _, _ in _months(start, end)]
+            return {**base, **note, "group_by": "month", "rows": out,
+                    "total": round(sum(x["value"] for x in out), 2)}
+        if group_by:
+            dkey = dim.split(".")[-1]
+            agg: dict[str, float] = {}
+            for r in rows:
+                k = r.get(dkey) or "(blank)"
+                agg[k] = agg.get(k, 0.0) + _val(r)
+            vkey = "value_sum" if metric == "sum" else "count"
+            out = [{"value": k, vkey: round(v, 2)} for k, v in agg.items()]
+            out.sort(key=lambda x: x[vkey], reverse=True)
+            return {**base, **note, "group_by": group_by, "group_by_field": dim,
+                    "rows": out, "total": round(sum(x[vkey] for x in out), 2)}
+        return {**base, **note, "total": round(sum(_val(r) for r in rows), 2)}
+
+    if not parts:
+        return _via_coql()  # no filters → COQL is reliable, keep it fast
+    try:
+        return _via_coql()
+    except Exception:
+        return _via_python()
 
 
 # ---------------------------------------------------------------
