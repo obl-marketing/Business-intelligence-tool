@@ -732,6 +732,10 @@ if prompt:
     with st.chat_message("assistant"):
         display_blocks: list[dict] = []
         accumulated_text = ""
+        # Top-level "working" indicator: visible from the moment the turn starts
+        # (while the model thinks) until it's done — so the user always sees that
+        # STARS is working, even before/without a tool call.
+        progress = st.status("Working on your question…", expanded=False)
         text_area = st.empty()
         tool_status_by_call: dict[int, object] = {}
 
@@ -751,6 +755,10 @@ if prompt:
                 elif etype == "tool_use":
                     if event["name"] == "render_chart":
                         continue  # chart rendering is shown via the chart event itself
+                    try:
+                        progress.update(label=f"Fetching data — {event['name']}…", state="running")
+                    except Exception:
+                        pass
                     # Close current text region, open a status box for the tool
                     text_area = st.empty()
                     accumulated_text = ""
@@ -798,7 +806,15 @@ if prompt:
                     text_area = st.empty()
                 elif etype == "done":
                     pass
+            try:
+                progress.update(label="Done ✓", state="complete")
+            except Exception:
+                pass
         except Exception as e:
+            try:
+                progress.update(label="Stopped on an error", state="error")
+            except Exception:
+                pass
             st.error(f"Error: {e}")
             st.stop()
 

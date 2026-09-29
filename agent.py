@@ -578,6 +578,17 @@ Deals + `date_field='modified'` (end date = 3 weeks ago) + `stage`/`status` filt
 `group_by='salesperson'`. Full field dictionary is in docs/ZOHO_FIELDS.md.
 - **If a `group_by` errors as an invalid column**, the field's real API name differs \
 from the guess - call `discover_zoho_fields` to get the exact api_name and use that.
+- **Filtering by zone / branch / salesperson / status / dealer / category: use the \
+`filters` object**, e.g. `filters={"zone":"North-1"}` or `{"salesperson":"x@y.com"}`. \
+These are NOT top-level args - a zone/branch passed anywhere else is IGNORED (you'd \
+silently get unfiltered totals). Always put them in `filters`.
+- **"How much volume / amount / revenue" = a SUM, not a count.** Set `metric='sum'` \
+with `sum_field='volume'` (Volume in Sq Mtr), `'amount'` (expected) or `'won_amount'` \
+(closed sale). E.g. "volume closed won by North-1, month-wise" = query_zoho_deals with \
+`stage='Closed Won'`, `filters={"zone":"North-1"}`, `metric='sum'`, `sum_field='volume'`, \
+`group_by='month'`. Plain counts stay `metric='count'` (the default).
+- **Monthly / time-series = `group_by='month'`** (works with count and sum). Don't loop \
+a separate call per month.
 - **Prefer the LIVE Zoho tools over any uploaded CRM spreadsheet.** If the user has \
 also attached lead/opportunity exports, still answer CRM questions with \
 `query_zoho_leads` / `query_zoho_deals` (they're live and complete); only fall back to \

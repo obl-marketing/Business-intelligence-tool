@@ -592,7 +592,10 @@ TOOL_SCHEMAS = [
                 "date_field": {"type": "string", "enum": ["created", "modified"], "description": "Which date to filter on (default 'created')."},
                 "source": {"type": "string", "description": "Optional Lead_Source value, e.g. 'Website'. Use discover_zoho_values to get exact spelling."},
                 "sub_source": {"type": "string", "description": "Optional Sub_Source value."},
-                "group_by": {"type": "string", "description": "Omit for a total. Use 'source', 'sub_source', 'owner', or ANY field API name from discover_zoho_fields (e.g. a salesperson-email field) to break down by it."},
+                "group_by": {"type": "string", "description": "Omit for a total. Use 'month' for a monthly time series, 'source', 'sub_source', 'owner', or ANY field API name to break down by it."},
+                "metric": {"type": "string", "enum": ["count", "sum"], "description": "'count' (default) = number of leads; 'sum' = total of sum_field."},
+                "sum_field": {"type": "string", "description": "Field to SUM when metric='sum' (e.g. 'amount', 'won_amount', 'volume', or a raw api_name)."},
+                "filters": {"type": "object", "description": "Equality filters on ANY field, e.g. {\"zone\":\"North-1\",\"salesperson\":\"x@y.com\",\"status\":\"New\"}. Keys can be friendly (zone/branch/salesperson/status/dealer/stage/source/sub_source) or a raw api_name."},
             },
             "required": ["start_date", "end_date"],
         },
@@ -617,7 +620,10 @@ TOOL_SCHEMAS = [
                 "source": {"type": "string", "description": "Optional Lead_Source value."},
                 "sub_source": {"type": "string", "description": "Optional Sub_Source value."},
                 "stage": {"type": "string", "description": "Optional Stage value (e.g. 'Closed Won')."},
-                "group_by": {"type": "string", "description": "Omit for a total. Friendly keys: 'stage', 'source', 'sub_source', 'salesperson' (Sales Person Email ID), 'status' (Stage Category = New/Active/Closed), 'dealer' (Assigned CP), 'zone', 'branch', 'owner' — or ANY raw field API name from discover_zoho_fields. E.g. group_by='salesperson' for deals per rep, group_by='status' for New/Active/Closed."},
+                "group_by": {"type": "string", "description": "Omit for a total. Use 'month' for a monthly time series, or friendly keys 'stage', 'salesperson', 'status' (New/Active/Closed), 'dealer', 'zone', 'branch', 'source', 'sub_source', 'owner', or ANY raw field API name. E.g. group_by='salesperson' for deals per rep."},
+                "metric": {"type": "string", "enum": ["count", "sum"], "description": "'count' (default) = number of deals; 'sum' = total of sum_field. Use 'sum' for volume/revenue questions ('how much volume/amount')."},
+                "sum_field": {"type": "string", "description": "Field to SUM when metric='sum': 'volume' (Volume in Sq Mtr), 'amount' (expected), 'won_amount' (closed sale), or a raw api_name. E.g. 'how much volume closed won' → metric='sum', sum_field='volume', stage='Closed Won'."},
+                "filters": {"type": "object", "description": "Equality filters on ANY field, e.g. {\"zone\":\"North-1\",\"salesperson\":\"x@y.com\",\"status\":\"New\"}. Keys can be friendly (zone/branch/salesperson/status/dealer/stage/source/sub_source/category) or a raw api_name. ALWAYS pass zone/branch/salesperson here — they are NOT separate top-level args."},
             },
             "required": ["start_date", "end_date"],
         },
@@ -1131,7 +1137,9 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                 args["start_date"], args["end_date"],
                 date_field=args.get("date_field", "created"),
                 source=args.get("source"), sub_source=args.get("sub_source"),
-                group_by=args.get("group_by"),
+                group_by=args.get("group_by"), metric=args.get("metric", "count"),
+                sum_field=args.get("sum_field"),
+                filters=args.get("filters") if isinstance(args.get("filters"), dict) else None,
             ))
 
         if name == "query_zoho_deals":
@@ -1141,6 +1149,8 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
                 date_field=args.get("date_field", "closing"),
                 source=args.get("source"), sub_source=args.get("sub_source"),
                 stage=args.get("stage"), group_by=args.get("group_by"),
+                metric=args.get("metric", "count"), sum_field=args.get("sum_field"),
+                filters=args.get("filters") if isinstance(args.get("filters"), dict) else None,
             ))
 
         if name == "discover_zoho_values":

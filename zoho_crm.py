@@ -174,31 +174,182 @@ def _guard() -> dict | None:
 
 
 # ---------------------------------------------------------------
+# Measures: COUNT (default) and SUM of a numeric-ish field (Amount / Won_Amount /
+# Volume). COQL SUM works on Currency fields; Volume is stored as text, so SUM
+# there falls back to fetching the values and summing in Python.
+# ---------------------------------------------------------------
+
+_MEASURE_FIELDS = {"volume": "Volume_In_Sq_Mtr", "amount": "Amount",
+                   "won_amount": "Won_Amount", "won amount": "Won_Amount",
+                   "value": "Amount", "pipeline": "Amount"}
+
+
+def _measure_field(key: str) -> str:
+    return _MEASURE_FIELDS.get((key or "").strip().lower(), key)
+
+
+def _numf(x) -> float:
+    try:
+        return float(str(x).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _agg_num(row: dict) -> float:
+    for k, v in row.items():
+        if "count" in k.lower() or "sum" in k.lower():
+            return _numf(v)
+    for v in row.values():
+        n = _numf(v)
+        if n:
+            return n
+    return 0.0
+
+
+def _fetch_values(module: str, field: str, where: str, dims: list[str] | None = None,
+                  cap: int = 60000) -> list[dict]:
+    """Paginate COQL selecting `field` (+ optional dims) and return raw row dicts.
+    Used to sum a text-stored numeric field (e.g. Volume) in Python."""
+    sel = ", ".join((dims or []) + [field])
+    out: list[dict] = []
+    offset, page = 0, 2000
+    while offset < cap:
+        try:
+            rows = _rows(f"select {sel} from {module} where {where} "
+                         f"limit {offset}, {page}")
+        except Exception:
+            if offset == 0:  # offset pagination unsupported → grab first page only
+                rows = _rows(f"select {sel} from {module} where {where} limit {page}")
+                out += rows
+            break
+        if not rows:
+            break
+        out += rows
+        if len(rows) < page:
+            break
+        offset += page
+    return out
+
+
+def _measure_total(module: str, where: str, metric: str, sum_field: str | None):
+    if metric == "sum":
+        try:
+            rows = _rows(f"select SUM({sum_field}) from {module} where {where}")
+            return round(_agg_num(rows[0]), 2) if rows else 0.0
+        except Exception:
+            key = sum_field.split(".")[-1]
+            vals = _fetch_values(module, sum_field, where)
+            return round(sum(_numf(r.get(key)) for r in vals), 2)
+    return _agg_count(module, where)
+
+
+def _measure_breakdown(module: str, dim: str, where: str, metric: str,
+                       sum_field: str | None, limit: int = 200) -> list[dict]:
+    if metric != "sum":
+        return _agg_breakdown(module, dim, where, limit)
+    try:
+        rows = _rows(f"select {dim}, SUM({sum_field}) from {module} where {where} "
+                     f"group by {dim} limit {limit}")
+        dkey = dim.split(".")[-1]
+        out = [{"value": (r.get(dkey) or "(blank)"), "value_sum": round(_agg_num(r), 2)}
+               for r in rows]
+    except Exception:  # SUM not allowed on this field → group-sum in Python
+        dkey, fkey = dim.split(".")[-1], sum_field.split(".")[-1]
+        agg: dict[str, float] = {}
+        for r in _fetch_values(module, sum_field, where, dims=[dim]):
+            k = r.get(dkey) or "(blank)"
+            agg[k] = agg.get(k, 0.0) + _numf(r.get(fkey))
+        out = [{"value": k, "value_sum": round(v, 2)} for k, v in agg.items()]
+    out.sort(key=lambda x: x["value_sum"], reverse=True)
+    return out
+
+
+def _months(start: str, end: str) -> list[tuple]:
+    """(label 'YYYY-MM', month_start, month_end) clipped to [start, end]."""
+    import datetime as _dt
+    d0 = _dt.date.fromisoformat(start); d1 = _dt.date.fromisoformat(end)
+    out = []; y, m = d0.year, d0.month
+    while (y, m) <= (d1.year, d1.month):
+        ms = _dt.date(y, m, 1)
+        nm = _dt.date(y + (m // 12), (m % 12) + 1, 1)
+        me = nm - _dt.timedelta(days=1)
+        out.append((ms.strftime("%Y-%m"), max(ms, d0).isoformat(), min(me, d1).isoformat()))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+def _run(module, start, end, *, date_field, sub_source_field, source, sub_source,
+         stage, filters, group_by, metric, sum_field, base) -> dict:
+    """Shared query engine: COUNT/SUM, arbitrary equality filters, and month or
+    field group-by. Rebuilds the WHERE per month for time series."""
+    metric = "sum" if (metric or "count").lower() == "sum" else "count"
+    sum_api = _measure_field(sum_field) if metric == "sum" else None
+    if metric == "sum" and not sum_api:
+        return {**base, "error": "metric='sum' needs sum_field (e.g. volume, amount, won_amount)."}
+
+    parts = []
+    if source:
+        parts.append(_in_or_eq(_source_field(), source))
+    if sub_source:
+        parts.append(_in_or_eq(sub_source_field, sub_source))
+    if stage:
+        parts.append(_in_or_eq(_stage_field(), stage))
+    for k, v in (filters or {}).items():
+        if v in (None, ""):
+            continue
+        fld = sub_source_field if k == "sub_source" else _dim_field(k)
+        parts.append(_in_or_eq(fld, v))
+    parts = [p for p in parts if p]
+
+    def _where_for(ds, de):
+        return " and ".join([_date_where(date_field, ds, de)] + parts)
+
+    base = {**base, "metric": metric, "sum_field": sum_api,
+            "applied_filters": {k: v for k, v in
+                                (("source", source), ("sub_source", sub_source),
+                                 ("stage", stage), *(filters or {}).items()) if v}}
+
+    if group_by == "month":
+        rows = [{"month": lbl, "value": _measure_total(module, _where_for(ms, me), metric, sum_api)}
+                for lbl, ms, me in _months(start, end)]
+        return {**base, "group_by": "month",
+                "rows": rows, "total": round(sum(r["value"] for r in rows), 2)}
+
+    where = _where_for(start, end)
+    if group_by:
+        dim = sub_source_field if group_by == "sub_source" else _dim_field(group_by)
+        rows = _measure_breakdown(module, dim, where, metric, sum_api)
+        vkey = "value_sum" if metric == "sum" else "count"
+        return {**base, "group_by": group_by, "group_by_field": dim, "rows": rows,
+                "total": round(sum(r.get(vkey, 0) for r in rows), 2)}
+    return {**base, "total": _measure_total(module, where, metric, sum_api)}
+
+
+# ---------------------------------------------------------------
 # Public: Leads
 # ---------------------------------------------------------------
 
 def leads(start: str, end: str, date_field: str = "created",
-          source=None, sub_source=None, group_by: str | None = None) -> dict:
-    """Leads count (or breakdown) over a window.
+          source=None, sub_source=None, group_by: str | None = None,
+          metric: str = "count", sum_field: str | None = None,
+          filters: dict | None = None) -> dict:
+    """Leads count/sum (or breakdown) over a window.
 
-    date_field: 'created' (default) or 'modified'. group_by: None for a total,
-    or 'source'/'sub_source' for a breakdown. Remember: this counts ALL leads
-    including converted ones (they stay in Leads), so it's the true total.
-    """
+    date_field: 'created' (default) or 'modified'. metric: 'count' (default) or
+    'sum' (needs sum_field). group_by: None, 'month', 'source', 'sub_source', or
+    any field/friendly-key. filters: equality filters on any field, e.g.
+    {'zone':'North-1','salesperson':'x@y.com'}. Counts ALL leads incl. converted
+    (they stay in Leads) - the true total; never add Deals."""
     if (g := _guard()):
         return g
-    where = _where(date_field, start, end, source=source, sub_source=sub_source)
     base = {"module": _leads_module(), "date_field": _DATE_FIELDS.get(date_field),
             "window": {"start": start, "end": end},
-            "filters": {"source": source, "sub_source": sub_source},
             "counting_note": "ALL leads incl. converted (converted leads stay in "
                              "Leads). This is the true total; do NOT add Deals."}
-    if group_by:
-        dim = _dim_field(group_by)
-        rows = _agg_breakdown(_leads_module(), dim, where)
-        return {**base, "group_by": group_by, "group_by_field": dim, "rows": rows,
-                "total": sum(r["count"] for r in rows)}
-    return {**base, "total_leads": _agg_count(_leads_module(), where)}
+    return _run(_leads_module(), start, end, date_field=date_field,
+                sub_source_field=_subsource_field(), source=source,
+                sub_source=sub_source, stage=None, filters=filters,
+                group_by=group_by, metric=metric, sum_field=sum_field, base=base)
 
 
 # ---------------------------------------------------------------
@@ -207,27 +358,24 @@ def leads(start: str, end: str, date_field: str = "created",
 
 def deals(start: str, end: str, date_field: str = "closing",
           source=None, sub_source=None, stage=None,
-          group_by: str | None = None) -> dict:
-    """Deals/Opportunities count (or breakdown). date_field: 'closing' (default),
-    'created' or 'modified'. group_by: None, 'stage', 'source' or 'sub_source'.
-    Deals are the post-qualification subset of leads."""
+          group_by: str | None = None, metric: str = "count",
+          sum_field: str | None = None, filters: dict | None = None) -> dict:
+    """Deals/Opportunities count/sum (or breakdown). date_field: 'closing'
+    (default), 'created' or 'modified'. metric: 'count' (default) or 'sum' (needs
+    sum_field, e.g. 'volume'/'amount'/'won_amount'). group_by: None, 'month',
+    'stage', 'salesperson', 'status', 'dealer', 'zone', 'branch', or any field.
+    filters: equality filters on any field, e.g. {'zone':'North-1'}. Deals =
+    post-qualification subset of leads."""
     if (g := _guard()):
         return g
-    where = _where(date_field, start, end, source=source, sub_source=sub_source,
-                   stage=stage, sub_source_field=_deals_subsource_field())
     base = {"module": _deals_module(), "date_field": _DATE_FIELDS.get(date_field),
             "window": {"start": start, "end": end},
-            "filters": {"source": source, "sub_source": sub_source, "stage": stage},
-            "counting_note": "Deals = post-qualification (leads that became "
-                             "opportunities). Qualification rate = Deals / Leads "
-                             "for the same window & source."}
-    if group_by:
-        # Deals sub-source has a distinct api_name from Leads.
-        dim = _deals_subsource_field() if group_by == "sub_source" else _dim_field(group_by)
-        rows = _agg_breakdown(_deals_module(), dim, where)
-        return {**base, "group_by": group_by, "group_by_field": dim, "rows": rows,
-                "total": sum(r["count"] for r in rows)}
-    return {**base, "total_deals": _agg_count(_deals_module(), where)}
+            "counting_note": "Deals = post-qualification. Qualification rate = "
+                             "Deals / Leads for the same window & source."}
+    return _run(_deals_module(), start, end, date_field=date_field,
+                sub_source_field=_deals_subsource_field(), source=source,
+                sub_source=sub_source, stage=stage, filters=filters,
+                group_by=group_by, metric=metric, sum_field=sum_field, base=base)
 
 
 # ---------------------------------------------------------------

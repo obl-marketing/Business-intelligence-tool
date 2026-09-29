@@ -92,8 +92,16 @@ Therefore the tools **self-discover** the schema instead of assuming standard na
   env-overridable (`ZOHO_SALESPERSON_FIELD`, `ZOHO_STATUS_FIELD`, `ZOHO_DEALER_FIELD`,
   `ZOHO_ZONE_FIELD`, `ZOHO_BRANCH_FIELD`, `ZOHO_DEALS_SUBSOURCE_FIELD`).
 - `discover_zoho_fields` lacks the settings scope, so it falls back to **COQL probing**
-  of candidate api-names (works with the coql scope). (Amount/volume SUM metrics are a
-  planned next step; breakdowns currently COUNT.)
+  of candidate api-names (works with the coql scope).
+- **Query engine** (`_run`): supports `metric` count|sum (sum_field: volume→
+  `Volume_In_Sq_Mtr` [text → summed in Python], amount→`Amount`, won_amount→
+  `Won_Amount` [Currency → COQL SUM]); `group_by='month'` time series (loops per month);
+  and a generic `filters` dict (equality on any field/friendly key). **Zone/branch/
+  salesperson/status/etc. MUST go in `filters`** — there are no top-level args for them,
+  and anything unrecognised is silently ignored (was a real wrong-numbers bug: a `zone`
+  arg got dropped and returned unfiltered totals).
+- UI: `app.py` shows a top-level `st.status` "Working…" from turn start to done, plus a
+  per-tool status box, so the user always sees progress.
 
 **Policy: don't rely on hand-written event definitions.** STARS discovers events itself.
 Keep the Knowledge Base for business context it CANNOT infer from GA4 (page-structure
