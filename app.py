@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from agent import chat
 import knowledge_base
 import chat_store
+import chat_export
 import doc_extract
 
 load_dotenv()
@@ -328,10 +329,12 @@ with st.sidebar:
 
     _saved_chats = chat_store.list_chats(_USER)
     _active = st.session_state.get("active_chat_id")
+    # Load full chat bodies once so each row can offer a download without re-reading.
+    _full_by_id = {c["id"]: c for c in chat_store.load_all(_USER)}
     if _saved_chats:
         for c in _saved_chats[:25]:
             is_active = c["id"] == _active
-            col_a, col_b = st.columns([5, 1])
+            col_a, col_b, col_c = st.columns([5, 1, 1])
             with col_a:
                 label = ("👉 " if is_active else "💬 ") + c["title"]
                 if st.button(label, key=f"chat_{c['id']}", use_container_width=True,
@@ -343,6 +346,14 @@ with st.sidebar:
                         st.session_state["chat_datasets"] = []
                         st.rerun()
             with col_b:
+                _full = _full_by_id.get(c["id"])
+                if _full and c["message_count"]:
+                    st.download_button(
+                        "📥", data=chat_export.chat_to_html(_full).encode("utf-8"),
+                        file_name=chat_export.filename_for(_full), mime="text/html",
+                        key=f"dl_chat_{c['id']}", use_container_width=True,
+                        help="Download this chat as an HTML file you can email to peers")
+            with col_c:
                 if st.button("✕", key=f"del_chat_{c['id']}", help="Delete this chat"):
                     chat_store.delete_chat(c["id"], _USER)
                     if c["id"] == _active:
@@ -612,6 +623,28 @@ def _render_blocks(blocks: list[dict], seed: str = "live") -> None:
         elif b["kind"] == "files":
             st.caption("📎 Attached: " + ", ".join(b.get("names", [])))
 
+
+# Download the CURRENT conversation (built from live session so it includes the
+# newest turn even before the sidebar list refreshes).
+if st.session_state["messages"]:
+    _cur_title = "STARS chat"
+    _cur_id = st.session_state.get("active_chat_id")
+    if _cur_id:
+        for _c in chat_store.list_chats(_USER):
+            if _c["id"] == _cur_id and _c.get("title"):
+                _cur_title = _c["title"]
+                break
+    else:
+        _cur_title = chat_store.auto_title(st.session_state["messages"])
+    _cur_chat = {"title": _cur_title, "messages": st.session_state["messages"]}
+    _dl_col = st.columns([1, 1, 1])[2]
+    with _dl_col:
+        st.download_button(
+            "📥 Download / email this chat",
+            data=chat_export.chat_to_html(_cur_chat).encode("utf-8"),
+            file_name=chat_export.filename_for(_cur_chat), mime="text/html",
+            key="dl_current_chat", use_container_width=True,
+            help="Save this conversation as a self-contained HTML file to email to peers")
 
 for _mi, msg in enumerate(st.session_state["messages"]):
     with st.chat_message(msg["role"]):
