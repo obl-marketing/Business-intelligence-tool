@@ -47,6 +47,51 @@ def _looks_like_site_question(q: str) -> bool:
     return any(h in low for h in _SITE_HINTS)
 
 
+_CRM_HINTS = (
+    "lead", "deal", "opportunit", "crm", "zoho", "salesperson", "sales person",
+    "sales rep", "fls", "pipeline", "qualif", "closed won", "closed lost", "won",
+    "conversion rate", "sub-source", "sub source", "stage", "closing", "dealer",
+    "zone", "branch", "enquir", "funnel", "volume",
+)
+
+
+def _looks_like_crm_question(q: str) -> bool:
+    return any(h in q.lower() for h in _CRM_HINTS)
+
+
+def _zoho_facts(question: str) -> dict | None:
+    """Ground CRM questions: the in-use field catalog + counting rules + how to
+    filter, so the planner picks the right module/fields and prefers populated
+    ones. Guarded - returns None if Zoho isn't connected."""
+    try:
+        import zoho_crm
+        if not zoho_crm.is_active():
+            return None
+        in_use = [{"label": f["label"], "api_name": f["api_name"],
+                   "meaning": (f.get("meaning") or "")[:60]}
+                  for f in zoho_crm._catalog().get("fields", []) if f.get("in_use")]
+        return {
+            "modules": {"leads": "pre-qualification: ALL leads incl. converted = the "
+                                 "true total (converted leads stay in Leads)",
+                        "deals": "post-qualification opportunities (stages, won/lost)"},
+            "counting_rule": "TOTAL leads = Leads count (never Leads+Deals); Deals = "
+                             "qualified subset; qualification rate = Deals / Leads.",
+            "friendly_group_by_keys": ["month", "salesperson", "status", "stage",
+                                       "source", "sub_source", "dealer", "zone", "branch"],
+            "how_to_query": "Filters (zone/branch/salesperson/status/dealer/category) go "
+                            "in the `filters` dict, NOT top-level. 'How much volume/"
+                            "amount/revenue' → metric='sum' + sum_field (volume|amount|"
+                            "won_amount). Time series → group_by='month'.",
+            "prioritise_populated": "Prefer fields that are actually filled; if unsure "
+                                    "which column a request maps to, call zoho_field_usage "
+                                    "to check fill-rate and pick the populated one, or ask "
+                                    "ONE short follow-up. Skip near-empty fields.",
+            "in_use_fields": in_use,
+        }
+    except Exception:
+        return None
+
+
 def _default_range(days: int = 28) -> tuple[str, str]:
     today = _dt.date.today()
     return (today - _dt.timedelta(days=days)).isoformat(), today.isoformat()
@@ -92,25 +137,36 @@ def _gather_facts(question: str) -> dict:
         except Exception:
             pass
 
+    if _looks_like_crm_question(question):
+        zf = _zoho_facts(question)
+        if zf:
+            facts["zoho"] = zf
+
     return facts
 
 
 _PLAN_INSTRUCTION = """You are the planning step of a business-intelligence agent \
 used by a non-technical marketing lead. Given the user's question and the FACTS \
-already discovered for this site (real page URLs and the property's real GA4 event \
-names + custom dimensions), output a SHORT fetch plan the agent will follow.
+already discovered (real page URLs, GA4 events/dimensions, and/or the Zoho CRM field \
+catalog), output a SHORT fetch plan the agent will follow.
 
 Rules:
-- Never invent event names or URLs. Only use the ones in FACTS. If FACTS lacks \
-something, say to discover it (resolve_page_url / discover_ga4_schema) rather than guess.
-- For "engagement / traffic / demand for <page>": pick the resolved page_path \
-(prefer a category/PLP page for category demand), then plan query_page_metrics \
-(+ query_pages_engagement_ranked for context) over a sensible date range, and \
-audit_page(url) for the "why".
-- For forms/popups: use query_popup_breakdown / query_form_breakdown (they \
-auto-adapt to customEvent:popup_id + customEvent:action).
-- Keep it to 4-7 bullet steps. Be concrete: name the exact page_path, tool, and \
-date range. Convert relative dates using today's date.
+- Never invent event names, URLs, or field api_names. Only use ones in FACTS. If FACTS \
+lacks something, say to discover it (resolve_page_url / discover_ga4_schema / \
+discover_zoho_fields) rather than guess.
+- GA4 "engagement / traffic / demand for <page>": pick the resolved page_path (prefer a \
+category/PLP page), plan query_page_metrics (+ query_pages_engagement_ranked) and \
+audit_page(url) for the "why". Forms/popups: query_popup_breakdown / query_form_breakdown.
+- CRM (leads/deals/opportunities/salesperson/pipeline/won): use FACTS.zoho. Pick the \
+module (Leads for lead volume incl. converted; Deals for pipeline/stage/won). Put \
+zone/branch/salesperson/status/dealer/category in the `filters` dict (NOT top-level - \
+top-level is ignored). "How much volume/amount/revenue" → metric='sum' + the right \
+sum_field (volume|amount|won_amount). Monthly → group_by='month'. Use ONLY api_names \
+from FACTS.zoho.in_use_fields; if the field is missing/ambiguous or might be near-empty, \
+say to call zoho_field_usage / discover_zoho_fields or ask ONE short follow-up. Prefer \
+populated fields over empty ones.
+- Keep it to 4-7 bullet steps. Be concrete: name the exact page_path/module/field, tool, \
+filters, and date range. Convert relative dates using today's date.
 
 Output plain text, starting with 'FETCH PLAN:'."""
 
@@ -149,7 +205,8 @@ def preflight(question: str, provider: str | None = None,
     the chat runs on Gemini; the plan step is skipped (facts still injected) otherwise.
     """
     try:
-        if not question or not _looks_like_site_question(question):
+        if not question or not (_looks_like_site_question(question)
+                                or _looks_like_crm_question(question)):
             return ""
 
         facts = _gather_facts(question)
@@ -159,31 +216,46 @@ def preflight(question: str, provider: str | None = None,
         plan_text = ""
         # The plan call uses Gemini regardless of the chat provider, but only if a
         # Gemini key is available; otherwise the discovered facts alone still help.
+        # The plan step sees the FULL facts (incl. the whole Zoho field catalog).
         try:
             gem_key = api_key if (provider or "").lower() == "gemini" else None
             plan_text = _gemini_plan(question, facts, gem_key, model)
         except Exception:
             plan_text = ""
 
+        # For the MAIN agent prompt, trim the big Zoho field list (the plan already
+        # named the fields it needs) to keep the prompt lean — leave a pointer.
+        inject_facts = dict(facts)
+        if isinstance(inject_facts.get("zoho"), dict):
+            zc = dict(inject_facts["zoho"])
+            n = len(zc.get("in_use_fields") or [])
+            zc.pop("in_use_fields", None)
+            zc["field_catalog"] = (f"{n} in-use fields available - call "
+                                   "discover_zoho_fields for the full label→api_name→"
+                                   "meaning list; zoho_field_usage for fill-rates.")
+            inject_facts["zoho"] = zc
+
         parts = [
             "",
             "# PRE-FLIGHT GROUNDING (computed for you THIS turn - use it, don't re-guess)",
             "",
             "Before you call any tool, these facts were already resolved for this "
-            "question so you fetch the RIGHT pages and REAL events, not assumptions:",
+            "question so you fetch from the RIGHT source with the RIGHT fields:",
             "",
             "```json",
-            json.dumps(facts, indent=2, default=str)[:6000],
+            json.dumps(inject_facts, indent=2, default=str)[:6000],
             "```",
         ]
         if plan_text:
             parts += ["", "## Suggested fetch plan", plan_text[:2500]]
         parts += [
             "",
-            "Use the resolved `page_path`/`url` values directly (don't ask the user "
-            "for a link), and map the question to the REAL event names above rather "
-            "than standard GA4 names. If a needed page or event isn't listed, call "
-            "resolve_page_url / discover_ga4_schema to find it.",
+            "Use the resolved page_path/url values and REAL field/event names directly "
+            "(don't ask the user for a link or guess standard names). For CRM, put "
+            "zone/branch/salesperson/status in the `filters` dict, prefer populated "
+            "fields (zoho_field_usage), and use discover_zoho_fields for any column not "
+            "listed. If something needed isn't resolved, discover it or ask ONE short "
+            "follow-up rather than guessing.",
             "",
         ]
         return "\n".join(parts)

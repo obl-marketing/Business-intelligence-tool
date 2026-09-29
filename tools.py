@@ -648,6 +648,26 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "zoho_field_usage",
+        "description": (
+            "Show how POPULATED Zoho fields are (fill-rate = % of records with a value) "
+            "over a window. Use this to decide WHICH fields to filter/group by — prefer "
+            "fields that are actually filled per lead/deal and avoid near-empty ones "
+            "(they aren't used in practice). Omit `fields` to check the in-use catalog; "
+            "or pass specific api_names/labels to compare a shortlist. Great when a "
+            "question could map to several columns and you want the one that's real."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "module": {"type": "string", "enum": ["leads", "deals"], "description": "Default deals."},
+                "fields": {"type": "array", "items": {"type": "string"}, "description": "Optional shortlist of api_names or labels to check; omit to scan the in-use catalog."},
+                "start_date": {"type": "string", "description": "Optional YYYY-MM-DD (default last 90 days)."},
+                "end_date": {"type": "string", "description": "Optional YYYY-MM-DD."},
+            },
+        },
+    },
+    {
         "name": "discover_zoho_values",
         "description": (
             "List the DISTINCT values (with counts) of a Zoho field so you use the "
@@ -1165,6 +1185,13 @@ def run_tool(name: str, args: dict[str, Any]) -> str:
             import zoho_crm
             return json.dumps(zoho_crm.discover_fields(
                 module=args.get("module", "deals")))
+
+        if name == "zoho_field_usage":
+            import zoho_crm
+            return json.dumps(zoho_crm.field_usage(
+                module=args.get("module", "deals"),
+                fields=args.get("fields") if isinstance(args.get("fields"), list) else None,
+                start=args.get("start_date"), end=args.get("end_date")))
 
         return json.dumps({"error": f"Unknown tool: {name}"})
 

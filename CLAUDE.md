@@ -102,6 +102,16 @@ Therefore the tools **self-discover** the schema instead of assuming standard na
   arg got dropped and returned unfiltered totals).
 - UI: `app.py` shows a top-level `st.status` "Working…" from turn start to done, plus a
   per-tool status box, so the user always sees progress.
+- **Full field catalog:** `data/zoho_deals_fields.json` (112 Deals columns: label,
+  api_name, meaning, `in_use`). `discover_zoho_fields` serves it (all columns, meanings)
+  with no metadata scope; `_dim_field`/`_measure_field` resolve human labels → api_names.
+  Only 16 api_names are probe-confirmed; the rest are label-derived (fix per-field if a
+  query errors, or add `ZohoCRM.settings.fields.READ` to auto-confirm all).
+- **Planner grounds CRM too** (`planner._zoho_facts`, gated by `_looks_like_crm_question`):
+  injects the in-use catalog + counting rules + how-to-filter into the Gemini pre-flight
+  plan, so it decides module/filters/group_by/metric before querying and **prefers
+  populated fields**. `zoho_field_usage` (tool) returns per-field fill-rate so STARS
+  avoids near-empty columns; prefer it / a follow-up over guessing.
 
 **Policy: don't rely on hand-written event definitions.** STARS discovers events itself.
 Keep the Knowledge Base for business context it CANNOT infer from GA4 (page-structure

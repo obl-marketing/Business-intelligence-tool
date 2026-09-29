@@ -509,3 +509,48 @@ def discover_fields(module: str = "deals") -> dict:
             "note": "Pick the api_name of the salesperson-email field and pass it as "
                     "group_by to query_zoho_deals (e.g. group_by='Sales_Person_Email') "
                     "to see deals per rep. Same for a status field."}
+
+
+def field_usage(module: str = "deals", fields: list | None = None,
+                start: str | None = None, end: str | None = None,
+                limit: int = 30) -> dict:
+    """How POPULATED each field is (fill-rate = records with a non-empty value ÷
+    total) over a window. Use this to prioritise fields that are actually used per
+    lead/deal and avoid mostly-empty ones. If `fields` is omitted, checks the
+    in-use catalog fields. Defaults to the last 90 days."""
+    if (g := _guard()):
+        return g
+    import datetime as _dt
+    if not (start and end):
+        today = _dt.date.today()
+        start = start or (today - _dt.timedelta(days=90)).isoformat()
+        end = end or today.isoformat()
+    mod = _deals_module() if module.lower().startswith("deal") else _leads_module()
+    date_where = _date_where("created", start, end)
+
+    def _resolve(f):
+        api = _dim_field(f)              # friendly key / label → api_name
+        return _measure_field(api) if api == f else api  # measure aliases too
+    if fields:
+        apis = [_resolve(f) for f in fields][:limit]
+    else:
+        apis = [f["api_name"] for f in _catalog().get("fields", [])
+                if f.get("in_use") and f.get("api_name")][:limit]
+
+    total = _agg_count(mod, date_where)
+    rows = []
+    for api in apis:
+        try:
+            n = _agg_count(mod, f"{date_where} and {api} is not null")
+        except Exception:
+            n = None  # field not COQL-filterable / bad api_name
+        rows.append({"api_name": api, "populated": n,
+                     "fill_pct": (round(n / total * 100, 1) if (n is not None and total) else None)})
+    # populated first; unknown/empty last
+    rows.sort(key=lambda r: (r["fill_pct"] is not None, r["fill_pct"] or 0), reverse=True)
+    return {"module": mod, "window": {"start": start, "end": end},
+            "total_records": total, "fields": rows,
+            "note": "fill_pct = % of records where the field has a value. Prefer fields "
+                    "with high fill_pct for filtering/grouping; near-0% fields are "
+                    "effectively unused. fill_pct=null means the api_name isn't "
+                    "COQL-filterable (may be wrong spelling)."}
