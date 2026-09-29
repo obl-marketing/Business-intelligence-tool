@@ -602,6 +602,11 @@ genuinely can't map.
 `filters` object**, e.g. `filters={{"zone":"North-1"}}` or `{{"salesperson":"x@y.com"}}`. \
 These are NOT top-level args - a zone/branch passed anywhere else is IGNORED (you'd \
 silently get unfiltered totals). Always put them in `filters`.
+- **Before filtering by a zone / branch / source / stage value you're not 100% sure of, \
+call `discover_zoho_values` (module='deals' for opportunities) to get the CRM's EXACT \
+spelling.** e.g. a "North 1 zone" question - check whether the data says `North 1`, \
+`North-1`, `North` or `N1` first; a wrong spelling silently returns zero, not an error. \
+Use the exact value it returns in `filters`.
 - **"How much volume / amount / revenue" = a SUM, not a count.** Set `metric='sum'` \
 with `sum_field='volume'` (Volume in Sq Mtr), `'amount'` (expected) or `'won_amount'` \
 (closed sale). E.g. "volume closed won by North-1, month-wise" = query_zoho_deals with \

@@ -672,15 +672,18 @@ TOOL_SCHEMAS = [
         "description": (
             "List the DISTINCT values (with counts) of a Zoho field so you use the "
             "CRM's exact spelling instead of guessing - e.g. how this CRM writes "
-            "'Website' / 'Meta' in Lead_Source or Sub_Source, or the full list of deal "
-            "Stages. Call this BEFORE filtering by source/stage if you're unsure. "
-            "field = source | sub_source | stage; module = leads | deals."
+            "'Website' / 'Meta' (source), the deal Stages, or the real ZONE / BRANCH "
+            "names (is it 'North 1', 'North-1' or 'North'?). ALWAYS call this before "
+            "filtering by a value you're unsure of - a wrong spelling silently returns "
+            "zero. field = source | sub_source | stage | zone | branch | salesperson | "
+            "status | dealer | owner, or any raw field api_name / human label; "
+            "module = leads | deals."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "module": {"type": "string", "enum": ["leads", "deals"], "description": "Which module (default leads)."},
-                "field": {"type": "string", "enum": ["source", "sub_source", "stage"], "description": "Which field's values to list."},
+                "module": {"type": "string", "enum": ["leads", "deals"], "description": "Which module (default leads). Use 'deals' for zone/branch/stage on opportunities."},
+                "field": {"type": "string", "description": "Field to list values for: a friendly key (source, sub_source, stage, zone, branch, salesperson, status, dealer, owner) or a raw api_name / human label."},
                 "start_date": {"type": "string", "description": "Optional YYYY-MM-DD; defaults to last 90 days."},
                 "end_date": {"type": "string", "description": "Optional YYYY-MM-DD."},
             },

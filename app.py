@@ -775,8 +775,12 @@ if prompt:
                         "output": "",
                     })
                 elif etype == "tool_result":
-                    # Fill the most recent empty tool block with this name
-                    for i in range(len(display_blocks) - 1, -1, -1):
+                    # Fill the FIRST still-empty tool block with this name. Results
+                    # arrive in the same order the tools were called, so scanning
+                    # front-to-back keeps each result matched to its own call when a
+                    # turn makes several calls to the same tool (scanning backwards
+                    # mis-paired them in reverse).
+                    for i in range(len(display_blocks)):
                         b = display_blocks[i]
                         if b["kind"] == "tool" and b["name"] == event["name"] and not b["output"]:
                             b["output"] = event["output"]

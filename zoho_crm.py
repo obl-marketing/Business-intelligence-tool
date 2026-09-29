@@ -106,21 +106,28 @@ def _date_where(date_field_key: str, start: str, end: str) -> str:
     field = _DATE_FIELDS.get(date_field_key, "Created_Time")
     if date_field_key in _DATETIME_KEYS:
         # Zoho datetime needs an ISO8601 offset; CRM is IST (+05:30).
-        return (f"{field} between '{start}T00:00:00+05:30' "
-                f"and '{end}T23:59:59+05:30'")
-    return f"{field} between '{start}' and '{end}'"
+        clause = (f"{field} between '{start}T00:00:00+05:30' "
+                  f"and '{end}T23:59:59+05:30'")
+    else:
+        clause = f"{field} between '{start}' and '{end}'"
+    # Parenthesise: COQL's `between X and Y` otherwise greedily swallows the next
+    # `and <condition>`, which makes a multi-condition WHERE fail to parse
+    # ("SYNTAX_ERROR near where"). Each condition must stand on its own.
+    return f"({clause})"
 
 
 def _in_or_eq(field: str, value) -> str:
-    """`field = 'x'` for one value, `field in ('a','b')` for a list."""
+    """`(field = 'x')` for one value, `(field in ('a','b'))` for a list. Always
+    parenthesised so conditions combine unambiguously with a `between` date
+    clause (COQL rejects unparenthesised mixes with a syntax error)."""
     if isinstance(value, (list, tuple, set)):
         vals = [v for v in value if str(v).strip()]
         if not vals:
             return ""
         if len(vals) == 1:
-            return f"{field} = {_q(vals[0])}"
-        return f"{field} in (" + ", ".join(_q(v) for v in vals) + ")"
-    return f"{field} = {_q(value)}"
+            return f"({field} = {_q(vals[0])})"
+        return f"({field} in (" + ", ".join(_q(v) for v in vals) + "))"
+    return f"({field} = {_q(value)})"
 
 
 def _where(date_field_key, start, end, *, source=None, sub_source=None, stage=None,
@@ -413,9 +420,12 @@ def deals(start: str, end: str, date_field: str = "closing",
 
 def discover_values(module: str = "leads", field: str = "source",
                     start: str | None = None, end: str | None = None) -> dict:
-    """List the distinct values (with counts) for a source / sub_source / stage
-    field, so we can see EXACTLY how this CRM spells 'Website', 'Meta', etc.
-    instead of guessing. Defaults to the last 90 days if no window given."""
+    """List the distinct values (with counts) for a field, so we see EXACTLY how
+    this CRM spells 'Website' / 'Meta' (source), a stage, or a ZONE / BRANCH /
+    salesperson / status value - instead of guessing (e.g. is a zone 'North 1',
+    'North-1' or 'North'?). Accepts the friendly keys source / sub_source / stage /
+    zone / branch / salesperson / status / dealer / owner, or any raw field
+    api_name / human label. Defaults to the last 90 days if no window given."""
     if (g := _guard()):
         return g
     import datetime as _dt
@@ -423,17 +433,23 @@ def discover_values(module: str = "leads", field: str = "source",
         today = _dt.date.today()
         start = start or (today - _dt.timedelta(days=90)).isoformat()
         end = end or today.isoformat()
-    mod = _deals_module() if module.lower().startswith("deal") else _leads_module()
-    getter = _DISCOVERABLE.get(field)
-    if not getter:
-        return {"error": f"Unknown field '{field}'. Use source, sub_source or stage."}
-    dim = getter()
+    is_deals = module.lower().startswith("deal")
+    mod = _deals_module() if is_deals else _leads_module()
+    # Deals spells sub-source 'Sub_source' (lowercase s); Leads uses 'Sub_Source'.
+    if field == "sub_source":
+        dim = _deals_subsource_field() if is_deals else _subsource_field()
+    else:
+        # Friendly keys (zone/branch/salesperson/status/...) and human labels both
+        # resolve through _dim_field; a raw api_name passes through unchanged.
+        dim = _dim_field(field)
     # date field: leads/deals both have Created_Time
     where = _date_where("created", start, end)
     rows = _agg_breakdown(mod, dim, where)
     return {"module": mod, "field": dim, "window": {"start": start, "end": end},
             "distinct_values": rows,
-            "note": "Use these exact values when filtering by source/stage."}
+            "note": "Use one of these EXACT values when filtering (e.g. in the "
+                    "`filters` dict). If your intended value isn't listed, pick the "
+                    "closest real one shown here rather than inventing a spelling."}
 
 
 def discover_fields(module: str = "deals") -> dict:
