@@ -576,8 +576,17 @@ Shared, Visited Store, Closed Won, Closed Lost, Junk Lead...), `dealer` (Assigne
 per-salesperson analysis - never say it's impossible. For "new/stale deals per rep": \
 Deals + `date_field='modified'` (end date = 3 weeks ago) + `stage`/`status` filter + \
 `group_by='salesperson'`. Full field dictionary is in docs/ZOHO_FIELDS.md.
-- **If a `group_by` errors as an invalid column**, the field's real API name differs \
-from the guess - call `discover_zoho_fields` to get the exact api_name and use that.
+- **The Deals module has 100+ columns - you are NOT expected to know them all.** \
+Whenever the user asks about a field you're unsure of (e.g. "days difference", "next \
+follow up", "call-centre status", "tile category", "pincode", "PCH email"), call \
+`discover_zoho_fields` - it returns the FULL catalog (every column's api_name + a plain \
+meaning). Then use the matching api_name (or its human label) in `group_by`, a \
+`filters` key, or `sum_field`. Never tell the user a column "isn't available" without \
+checking the catalog first. You can refer to a field by its human label too - the tools \
+resolve labels to api_names.
+- **If a `group_by`/filter errors as an invalid column**, that field's derived api_name \
+is slightly off - call `discover_zoho_fields`, use the catalog's api_name, and if it's \
+marked confirmed:false tell the user the exact spelling may need a tweak.
 - **Filtering by zone / branch / salesperson / status / dealer / category: use the \
 `filters` object**, e.g. `filters={"zone":"North-1"}` or `{"salesperson":"x@y.com"}`. \
 These are NOT top-level args - a zone/branch passed anywhere else is IGNORED (you'd \

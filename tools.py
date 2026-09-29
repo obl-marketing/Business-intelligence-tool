@@ -631,13 +631,14 @@ TOOL_SCHEMAS = [
     {
         "name": "discover_zoho_fields",
         "description": (
-            "List the REAL field API names of a Zoho module (Leads or Deals) so you "
-            "can find fields the fixed tools don't name yet — e.g. the salesperson / "
-            "owner / sales-person-email field, or a status field. It highlights likely "
-            "salesperson and status fields. Use it whenever the user asks to break down "
-            "or filter by something not covered by source/sub_source/stage (like 'which "
-            "salesperson has these leads'), then pass the chosen api_name as `group_by` "
-            "to query_zoho_leads / query_zoho_deals."
+            "Return the FULL Zoho Deals field catalog — all ~100+ columns with their "
+            "api_name AND a plain-language meaning (salesperson email, Stage Category, "
+            "volume, dealer, zone, branch, follow-up dates, call-centre fields, "
+            "hierarchy, etc.). Use this whenever the user asks about ANY column not "
+            "already covered by the common filters, or when you're unsure which field "
+            "matches their words. Then pass the chosen api_name (or its human label) as "
+            "`group_by`, a `filters` key, or `sum_field` in query_zoho_deals. This is how "
+            "you understand the whole module, not just a few fields."
         ),
         "input_schema": {
             "type": "object",

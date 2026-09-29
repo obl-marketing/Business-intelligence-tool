@@ -19,11 +19,34 @@ Live only when Zoho is configured (see zoho_client). Everything here is guarded;
 callers get a clear note when Zoho isn't connected instead of an exception.
 """
 from __future__ import annotations
+import functools
+import json
 import os
 
 # ---- Field / module config (env overrides; defaults = Orient Bell CRM) ----
 def _cfg(key: str, default: str) -> str:
     return (os.environ.get(key) or default).strip()
+
+
+@functools.lru_cache(maxsize=1)
+def _catalog() -> dict:
+    """The Deals/Opportunity field dictionary (label → api_name → meaning) built
+    from the OBL field export. Lets STARS understand ALL ~100+ columns without the
+    metadata scope. api_names flagged confirmed:false are derived from the label."""
+    try:
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "data", "zoho_deals_fields.json")
+        with open(p, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {"fields": []}
+
+
+@functools.lru_cache(maxsize=1)
+def _label_map() -> dict:
+    """Lower-cased human label → api_name, from the catalog."""
+    return {f["label"].strip().lower(): f["api_name"]
+            for f in _catalog().get("fields", []) if f.get("label") and f.get("api_name")}
 
 def _leads_module() -> str: return _cfg("ZOHO_LEADS_MODULE", "Leads")
 def _deals_module() -> str: return _cfg("ZOHO_DEALS_MODULE", "Deals")
@@ -60,7 +83,10 @@ def _dim_field(group_by: str) -> str:
              "salesperson": _salesperson_field(), "status": _status_field(),
              "dealer": _dealer_field(), "zone": _zone_field(),
              "branch": _branch_field()}
-    return known.get(group_by, group_by)
+    if group_by in known:
+        return known[group_by]
+    # A human label from the field catalog (e.g. 'Days Difference') → its api_name.
+    return _label_map().get(str(group_by).strip().lower(), group_by)
 
 
 def is_active() -> bool:
@@ -185,7 +211,10 @@ _MEASURE_FIELDS = {"volume": "Volume_In_Sq_Mtr", "amount": "Amount",
 
 
 def _measure_field(key: str) -> str:
-    return _MEASURE_FIELDS.get((key or "").strip().lower(), key)
+    k = (key or "").strip().lower()
+    if k in _MEASURE_FIELDS:
+        return _MEASURE_FIELDS[k]
+    return _label_map().get(k, key)  # human label → api_name, else assume raw
 
 
 def _numf(x) -> float:
@@ -421,9 +450,29 @@ def discover_fields(module: str = "deals") -> dict:
         payload = zoho_client.get(f"crm/{_api_version()}/settings/fields",
                                   params={"module": mod})
     except Exception as exc:
-        # Metadata scope missing → discover names by PROBING candidates via COQL
-        # (uses only the coql/module scope we already have). For each logical field
-        # we try common api-name spellings and keep the first that COQL accepts.
+        # Metadata scope missing → serve the baked field catalog (all ~100+ Deals
+        # columns with meanings + api_names), so STARS understands every column
+        # without any extra Zoho scope. (Leads has no catalog file → probe a few.)
+        cat_fields = _catalog().get("fields", []) if mod == _deals_module() else []
+        if cat_fields:
+            low = lambda s: (s or "").lower()
+            likely_sp = [f for f in cat_fields if any(
+                k in low(f["label"]) + low(f["api_name"])
+                for k in ("sales person", "salesperson", "owner", "assign", "agent", "fls"))]
+            likely_status = [f for f in cat_fields if any(
+                k in low(f["label"]) + low(f["api_name"])
+                for k in ("stage", "status", "state"))]
+            return {"module": mod, "method": "baked_catalog",
+                    "field_count": len(cat_fields),
+                    "likely_salesperson_fields": likely_sp,
+                    "likely_status_fields": likely_status,
+                    "fields": cat_fields,
+                    "note": "Full Deals field catalog (label → api_name → meaning). "
+                            "Pass any api_name (or its human label) as group_by / a "
+                            "filters key / sum_field. api_names with confirmed:false are "
+                            "derived from the label — if a query errors 'invalid column', "
+                            "tell me and I'll correct that one."}
+        # No catalog (e.g. Leads) → probe a few common candidates via COQL.
         def _field_works(cand: str) -> bool:
             try:
                 _coql(f"select {cand} from {mod} where Created_Time > "
@@ -432,33 +481,17 @@ def discover_fields(module: str = "deals") -> dict:
             except Exception:
                 return False
         candidates = {
-            "salesperson_email": ["Sales_Person_Email_ID", "Sales_Person_Email",
-                                  "Sales_Person_Email_Id", "SalesPerson_Email"],
-            "salesperson_name": ["Sales_Person_Name"],
-            "status_new_active_closed": ["Stage_Category", "Stage_category"],
-            "stage": ["Stage"],
-            "source": ["Lead_Source"],
-            "sub_source": ["Sub_source", "Sub_Source", "Sub_Source1"],
-            "dealer": ["Assigned_CP_Name", "Assigned_CP", "CP_Name"],
-            "zone": ["Zone"],
-            "branch": ["Branch_Area"],
-            "amount": ["Amount"],
-            "won_amount": ["Won_Amount"],
-            "volume": ["Volume_In_Sq_Mtr", "Volume_in_Sq_Mtr", "Volume"],
-            "lead_conversion_time": ["Lead_Conversion_Time"],
-            "category": ["Category"],
-            "owner": ["Owner", "Opportunity_Owner_Name"],
+            "salesperson_email": ["Sales_Person_Email_ID", "Sales_Person_Email"],
+            "status_new_active_closed": ["Stage_Category"],
+            "source": ["Lead_Source"], "sub_source": ["Sub_Source", "Sub_source"],
+            "stage": ["Stage"], "owner": ["Owner"],
         }
         resolved = {logical: next((c for c in cands if _field_works(c)), None)
                     for logical, cands in candidates.items()}
         return {"module": mod, "method": "coql_probe",
-                "metadata_error": str(exc)[:160],
-                "resolved_fields": resolved,
-                "note": "Field-metadata scope isn't granted, so I probed api-names via "
-                        "COQL. resolved_fields = the working api_name for each concept "
-                        "(null = none of my spellings matched; tell me the exact one). "
-                        "Use the working name as group_by, e.g. "
-                        f"group_by='{resolved.get('salesperson_email') or 'Sales_Person_Email_ID'}'."}
+                "metadata_error": str(exc)[:160], "resolved_fields": resolved,
+                "note": "Probed api-names via COQL (no metadata scope). Use the working "
+                        "name as group_by; tell me any you need that came back null."}
     fields = payload.get("fields") or []
     all_fields = [{"api_name": f.get("api_name"), "label": f.get("field_label"),
                    "type": f.get("data_type")} for f in fields if f.get("api_name")]
