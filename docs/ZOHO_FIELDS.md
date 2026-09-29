@@ -19,7 +19,7 @@ Leads, and on qualification it converts to a Deal (the Lead stays, flagged Conve
 | Pipeline stage | **Stage** | Deal stage: Qualification, Spoken to Customer, Scheduled a visit, Samples shared, Quotation Shared, Visited Store, Closed Won, Closed Lost, Junk Lead, … | `stage=` filter / `group_by='stage'` → `Stage` |
 | Lead status | Lead Status | Status of the lead | — |
 | Source | Lead Source | Where the lead came from (Website, Meta, …) | `source=` / `group_by='source'` → `Lead_Source` |
-| Sub-source | **Sub-source** | Lead sub-source (note: hyphen in label; Leads module uses `Sub_Source`) | `group_by='sub_source'` — confirm API name for Deals |
+| Sub-source | **Sub-source** | Lead sub-source | Deals api_name = `Sub_source` (lowercase s); Leads = `Sub_Source`. `group_by='sub_source'` handles both. |
 | Dealer (CP) | Assigned CP Name | Name of the assigned channel partner/dealer (from CP code) | `group_by='dealer'` → `Assigned_CP_Name` |
 | Zone | Zone | North/South/East/West | `group_by='zone'` → `Zone` |
 | Branch/region | Branch Area | Area/region of the assigned salesperson/branch manager | `group_by='branch'` → `Branch_Area` |

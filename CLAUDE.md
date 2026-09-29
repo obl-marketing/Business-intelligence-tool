@@ -84,14 +84,16 @@ Therefore the tools **self-discover** the schema instead of assuming standard na
   the keys source/sub_source/stage/owner). Per-rep stale-lead analysis = Deals +
   `date_field='modified'` + `stage` filter + `group_by=<salesperson field>`.
 - Prefer the live Zoho tools over any uploaded CRM spreadsheet exports.
-- **Field dictionary: `docs/ZOHO_FIELDS.md`** (the OBL Deals/Opportunity fields +
-  meanings). Friendly group_by keys map to env-overridable API-name guesses:
-  salesperson→`Sales_Person_Email_ID`, status→`Stage_Category` (New/Active/Closed),
-  dealer→`Assigned_CP_Name`, zone→`Zone`, branch→`Branch_Area` (env:
-  `ZOHO_SALESPERSON_FIELD`, `ZOHO_STATUS_FIELD`, `ZOHO_DEALER_FIELD`,
-  `ZOHO_ZONE_FIELD`, `ZOHO_BRANCH_FIELD`). If a group_by errors as invalid column,
-  the api_name differs — confirm via discover_zoho_fields and set the env var.
-  (Amount/volume SUM metrics are a planned next step; breakdowns currently COUNT.)
+- **Field dictionary: `docs/ZOHO_FIELDS.md`**. Field api_names CONFIRMED via COQL probe
+  (Sept 2026): salesperson→`Sales_Person_Email_ID`, status→`Stage_Category`
+  (New/Active/Closed), dealer→`Assigned_CP_Name`, zone→`Zone`, branch→`Branch_Area`,
+  owner→`Owner`. **Deals sub-source = `Sub_source`** (lowercase s), Leads =
+  `Sub_Source` — handled per-module. Friendly group_by keys resolve these; all
+  env-overridable (`ZOHO_SALESPERSON_FIELD`, `ZOHO_STATUS_FIELD`, `ZOHO_DEALER_FIELD`,
+  `ZOHO_ZONE_FIELD`, `ZOHO_BRANCH_FIELD`, `ZOHO_DEALS_SUBSOURCE_FIELD`).
+- `discover_zoho_fields` lacks the settings scope, so it falls back to **COQL probing**
+  of candidate api-names (works with the coql scope). (Amount/volume SUM metrics are a
+  planned next step; breakdowns currently COUNT.)
 
 **Policy: don't rely on hand-written event definitions.** STARS discovers events itself.
 Keep the Knowledge Base for business context it CANNOT infer from GA4 (page-structure

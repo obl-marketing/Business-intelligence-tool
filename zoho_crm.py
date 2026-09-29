@@ -29,6 +29,8 @@ def _leads_module() -> str: return _cfg("ZOHO_LEADS_MODULE", "Leads")
 def _deals_module() -> str: return _cfg("ZOHO_DEALS_MODULE", "Deals")
 def _source_field() -> str: return _cfg("ZOHO_SOURCE_FIELD", "Lead_Source")
 def _subsource_field() -> str: return _cfg("ZOHO_SUBSOURCE_FIELD", "Sub_Source")
+# Deals module spells it 'Sub_source' (confirmed via COQL probe); Leads uses 'Sub_Source'.
+def _deals_subsource_field() -> str: return _cfg("ZOHO_DEALS_SUBSOURCE_FIELD", "Sub_source")
 def _stage_field() -> str: return _cfg("ZOHO_STAGE_FIELD", "Stage")
 def _owner_field() -> str: return _cfg("ZOHO_OWNER_FIELD", "Owner")
 # Deals/Opportunity extras (API-name best guesses from the OBL field dictionary;
@@ -95,12 +97,13 @@ def _in_or_eq(field: str, value) -> str:
     return f"{field} = {_q(value)}"
 
 
-def _where(date_field_key, start, end, *, source=None, sub_source=None, stage=None) -> str:
+def _where(date_field_key, start, end, *, source=None, sub_source=None, stage=None,
+           sub_source_field=None) -> str:
     parts = [_date_where(date_field_key, start, end)]
     if source:
         parts.append(_in_or_eq(_source_field(), source))
     if sub_source:
-        parts.append(_in_or_eq(_subsource_field(), sub_source))
+        parts.append(_in_or_eq(sub_source_field or _subsource_field(), sub_source))
     if stage:
         parts.append(_in_or_eq(_stage_field(), stage))
     return " and ".join(p for p in parts if p)
@@ -210,7 +213,8 @@ def deals(start: str, end: str, date_field: str = "closing",
     Deals are the post-qualification subset of leads."""
     if (g := _guard()):
         return g
-    where = _where(date_field, start, end, source=source, sub_source=sub_source, stage=stage)
+    where = _where(date_field, start, end, source=source, sub_source=sub_source,
+                   stage=stage, sub_source_field=_deals_subsource_field())
     base = {"module": _deals_module(), "date_field": _DATE_FIELDS.get(date_field),
             "window": {"start": start, "end": end},
             "filters": {"source": source, "sub_source": sub_source, "stage": stage},
@@ -218,7 +222,8 @@ def deals(start: str, end: str, date_field: str = "closing",
                              "opportunities). Qualification rate = Deals / Leads "
                              "for the same window & source."}
     if group_by:
-        dim = _dim_field(group_by)
+        # Deals sub-source has a distinct api_name from Leads.
+        dim = _deals_subsource_field() if group_by == "sub_source" else _dim_field(group_by)
         rows = _agg_breakdown(_deals_module(), dim, where)
         return {**base, "group_by": group_by, "group_by_field": dim, "rows": rows,
                 "total": sum(r["count"] for r in rows)}
