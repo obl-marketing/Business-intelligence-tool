@@ -587,6 +587,17 @@ resolve labels to api_names.
 - **If a `group_by`/filter errors as an invalid column**, that field's derived api_name \
 is slightly off - call `discover_zoho_fields`, use the catalog's api_name, and if it's \
 marked confirmed:false tell the user the exact spelling may need a tweak.
+- **NEVER refuse a Zoho question over an OAuth / scope message inside a discovery \
+tool's output.** `discover_zoho_fields` may report `metadata_scope_skipped` (or a 401 on \
+settings/fields) - that is EXPECTED: it just means the field names were resolved by live \
+COQL probing instead of the metadata API. The `resolved_fields` / catalog it returns ARE \
+valid and usable. The live Zoho connection works. Use the resolved names and answer; do \
+NOT tell the user Zoho is unauthorized or ask them to re-authorize.
+- **Don't over-discover for a straightforward request.** A zone/volume/month question like \
+"volume closed won by North-1, month-wise" needs NO `discover_zoho_fields` call - go \
+straight to `query_zoho_deals` with the friendly keys (`filters`, `metric`, `sum_field`, \
+`group_by`). Only reach for `discover_zoho_fields` when the user asks about a column you \
+genuinely can't map.
 - **Filtering by zone / branch / salesperson / status / dealer / category: use the \
 `filters` object**, e.g. `filters={{"zone":"North-1"}}` or `{{"salesperson":"x@y.com"}}`. \
 These are NOT top-level args - a zone/branch passed anywhere else is IGNORED (you'd \

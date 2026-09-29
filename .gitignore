@@ -8,6 +8,7 @@ venv/
 !package.json
 !knowledge/entries.json
 !chats/*.json
+!data/zoho_deals_fields.json
 service-account-*.json
 
 # Preview artifacts (regenerate with `python3 build_preview.py`)

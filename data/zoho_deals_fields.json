@@ -1,0 +1,902 @@
+{
+ "module": "Deals",
+ "source": "OBL field dictionary (post-qualification)",
+ "fields": [
+  {
+   "label": "Area in City",
+   "api_name": "Area_in_City",
+   "meaning": "Area name in the city is captured",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Amount",
+   "api_name": "Amount",
+   "meaning": "amount expected",
+   "type": "Currency",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "All Traffic Sources",
+   "api_name": "All_Traffic_Sources",
+   "meaning": "Empty for all records",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "Assigned CP By Agent",
+   "api_name": "Assigned_CP_By_Agent",
+   "meaning": "Recently started using",
+   "type": "Lookup",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Assigned CP Name",
+   "api_name": "Assigned_CP_Name",
+   "meaning": "Name of the Assigned CP (Automatically populated as per the CP code)",
+   "type": "Single Line",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "BH Email ID",
+   "api_name": "BH_Email_ID",
+   "meaning": "BH email",
+   "type": "Email",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "BH Employee ID",
+   "api_name": "BH_Employee_ID",
+   "meaning": "Unused",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "BH Phone",
+   "api_name": "BH_Phone",
+   "meaning": "Unused",
+   "type": "Phone",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "BM Code",
+   "api_name": "BM_Code",
+   "meaning": "Captures the Branch manager emp id",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Branch Area",
+   "api_name": "Branch_Area",
+   "meaning": "Captues the Area/region of the Assigned salesperson/branch manager",
+   "type": "Single Line",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "Branch Manager",
+   "api_name": "Branch_Manager",
+   "meaning": "Captures the Branch manager Name",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Category",
+   "api_name": "Category",
+   "meaning": "Captures Adhesive or non Adhesive",
+   "type": "Dropdown",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "City",
+   "api_name": "City",
+   "meaning": "City Name",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Campaign Name",
+   "api_name": "Campaign_Name",
+   "meaning": "Not in use since last 2 years.",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "Closed By",
+   "api_name": "Closed_By",
+   "meaning": "Opprtunity marked as closed won by either fls/bh/cp",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Closed By FLS/CP",
+   "api_name": "Closed_By_FLS_CP",
+   "meaning": "Closed by either FLS or CP",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Closed Through App",
+   "api_name": "Closed_Through_App",
+   "meaning": "App name which app used to work upon lead",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Closed Won Date",
+   "api_name": "Closed_Won_Date",
+   "meaning": "Deal Won Date",
+   "type": "Date",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Closing Date",
+   "api_name": "Closing_Date",
+   "meaning": "Deal Won/Lost Date",
+   "type": "Date",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "Contact Name",
+   "api_name": "Contact_Name",
+   "meaning": "Customer Name",
+   "type": "Lookup",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "CP Name",
+   "api_name": "CP_Name",
+   "meaning": "Dealer Name (Not used since last 2 years)",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "Created By",
+   "api_name": "Created_By",
+   "meaning": "Id through which record is created",
+   "type": "Integer",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Created Time",
+   "api_name": "Created_Time",
+   "meaning": "time of record creation",
+   "type": "Date/Time",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "Current Stage Update Date/Time",
+   "api_name": "Current_Stage_Update_Date_Time",
+   "meaning": "Stage updated time",
+   "type": "Date/Time",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Currently Active Business",
+   "api_name": "Currently_Active_Business",
+   "meaning": "Yes/No field -NOT USED",
+   "type": "Dropdown",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "Dealer Code",
+   "api_name": "Dealer_Code",
+   "meaning": "Single line -Channel partner code",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Dealer Name",
+   "api_name": "Dealer_Name",
+   "meaning": "Single line -Channel Partner Name",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Dealer Remarks",
+   "api_name": "Dealer_Remarks",
+   "meaning": "Multiline -Remarks by Channel Partner",
+   "type": "Multiline",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Dealer Type",
+   "api_name": "Dealer_Type",
+   "meaning": "Dropdown Main/Sub",
+   "type": "Currency",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Zone",
+   "api_name": "Zone",
+   "meaning": "Single Line -Which zone belongs to north/south",
+   "type": "single Line",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "Won Amount",
+   "api_name": "Won_Amount",
+   "meaning": "For Adhesive sale amount closed",
+   "type": "Currency",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "Volume (In Sq. Mtr.)",
+   "api_name": "Volume_In_Sq_Mtr",
+   "meaning": "Single Line Volume won closed in sq mtr",
+   "type": "single Line",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "Visit Status",
+   "api_name": "Visit_Status",
+   "meaning": "Dropdown Yes/no/reschedule",
+   "type": "dropdown",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Tiling Date/Likely Purchase Date",
+   "api_name": "Tiling_Date_Likely_Purchase_Date",
+   "meaning": "date Likely sale date",
+   "type": "date",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Tiles Requirement for",
+   "api_name": "Tiles_Requirement_for",
+   "meaning": "Dropdown Home Commercial/Business Dealership/Reselling Others",
+   "type": "Dropdown",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Tile Requirement Remarks",
+   "api_name": "Tile_Requirement_Remarks",
+   "meaning": "Remarks",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Tile Requirement in Area Sq Mtr.",
+   "api_name": "Tile_Requirement_in_Area_Sq_Mtr",
+   "meaning": "Single Line Tile reuirement are in sq mtr",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Tile Requirement in Area Sq ft",
+   "api_name": "Tile_Requirement_in_Area_Sq_ft",
+   "meaning": "Single Line Tile requirement are in sq ft",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Tile Category",
+   "api_name": "Tile_Category",
+   "meaning": "Multi select Tile types",
+   "type": "Multi Select",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Stages Date",
+   "api_name": "Stages_Date",
+   "meaning": "Stage Date(Not needed)",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "State",
+   "api_name": "State",
+   "meaning": "State Name",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "State Code",
+   "api_name": "State_Code",
+   "meaning": "State Short form",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Stage Category",
+   "api_name": "Stage_Category",
+   "meaning": "Single Line -New/Active/Closed, these are frontent sections within lead management feature in the sales app",
+   "type": "Single Line",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "Stage",
+   "api_name": "Stage",
+   "meaning": "Stages of the lead",
+   "type": "Single Line",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "Sales Person Remarks",
+   "api_name": "Sales_Person_Remarks",
+   "meaning": "Single Line Remarks updated by Sales person",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Sales Person Phone",
+   "api_name": "Sales_Person_Phone",
+   "meaning": "Single Line Phone number of Sales person",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Sales Person Name",
+   "api_name": "Sales_Person_Name",
+   "meaning": "Single Line Name of Sales person",
+   "type": "Single Line",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "Sales Person Employee ID",
+   "api_name": "Sales_Person_Employee_ID",
+   "meaning": "Single Line Emp id of Sales person (Not needed)",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "Sales Person Employee Code",
+   "api_name": "Sales_Person_Employee_Code",
+   "meaning": "Single Line Emp id of Sales person (Not needed)",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "Sales Person Emp ID",
+   "api_name": "Sales_Person_Emp_ID",
+   "meaning": "Single Line Emp id of Sales person",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Sales Person Email ID",
+   "api_name": "Sales_Person_Email_ID",
+   "meaning": "Single Line Email id of Sales person",
+   "type": "Single Line",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "Remarks of Sample shared",
+   "api_name": "Remarks_of_Sample_shared",
+   "meaning": "Remarks That sales team put in the app when turning/changing the tage of the lead into sample shared stage",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Remarks of quotation shared",
+   "api_name": "Remarks_of_quotation_shared",
+   "meaning": "Remarks That sales team put in the app when turning the lead into sample quotation stage",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Remarks of Scheduled a Visit",
+   "api_name": "Remarks_of_Scheduled_a_Visit",
+   "meaning": "Remarks That sales team put in the app when changing the stage to scheduled a visit",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Remarks of visit store",
+   "api_name": "Remarks_of_visit_store",
+   "meaning": "Remarks That sales team put in the app when changing the stage to visited store",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Remarks spoken to customer",
+   "api_name": "Remarks_spoken_to_customer",
+   "meaning": "Remarks That sales team put in the app when changing the stage to spoken to a customer",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Quicklook Design Shared",
+   "api_name": "Quicklook_Design_Shared",
+   "meaning": "Url of OBL design website",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Project Name",
+   "api_name": "Project_Name",
+   "meaning": "Name of the Site or project (Not in use from last 1.5 years)",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "Project City",
+   "api_name": "Project_City",
+   "meaning": "project site city (Not in use from last 1.5 years)",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "Phone",
+   "api_name": "Phone",
+   "meaning": "Phone no of Customer",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "PCH Name",
+   "api_name": "PCH_Name",
+   "meaning": "Branch Head Name",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "PCH Mobile",
+   "api_name": "PCH_Mobile",
+   "meaning": "Branch Head Mobile",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "PCH Email ID",
+   "api_name": "PCH_Email_ID",
+   "meaning": "Branch Head Email Id",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Pages Visited",
+   "api_name": "Pages_Visited",
+   "meaning": "Webiste Visted links, last page is usually where the lead is filled from. last 10 pages of the user journey",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Opportunity Owner Name",
+   "api_name": "Opportunity_Owner_Name",
+   "meaning": "Lead Owner",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Opportunity Name",
+   "api_name": "Opportunity_Name",
+   "meaning": "Customer Name/project name",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Not picking 2 B2B Date",
+   "api_name": "Not_picking_2_B2B_Date",
+   "meaning": "Not picking call date",
+   "type": "Date",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "Not Interested Reason",
+   "api_name": "Not_Interested_Reason",
+   "meaning": "Remark field",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Next Follow up",
+   "api_name": "Next_Follow_up",
+   "meaning": "Next date to reach out",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "NH Code",
+   "api_name": "NH_Code",
+   "meaning": "NH emp code",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "National Head",
+   "api_name": "National_Head",
+   "meaning": "NH Name",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Modified_time_crmMasters",
+   "api_name": "Modified_time_crmMasters",
+   "meaning": "Modified time when update has been done through executive app.",
+   "type": "Date/Time",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Modified Time",
+   "api_name": "Modified_Time",
+   "meaning": "Modified time of record",
+   "type": "Date/Time",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "Modified By Custom",
+   "api_name": "Modified_By_Custom",
+   "meaning": "Modified time of record",
+   "type": "Date/Time",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Modified By",
+   "api_name": "Modified_By",
+   "meaning": "Id through which record is Modified",
+   "type": "Integer",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Mobile",
+   "api_name": "Mobile",
+   "meaning": "Lead Mobile Number",
+   "type": "Phone",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Lead Status",
+   "api_name": "Lead_Status",
+   "meaning": "Status of Lead",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Lead Conversion Time",
+   "api_name": "Lead_Conversion_Time",
+   "meaning": "Time when lead converted to opportunity. Opportunity is the deal/qualified lead.",
+   "type": "",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "Lead Closing Date",
+   "api_name": "Lead_Closing_Date",
+   "meaning": "Date at the time of lead converted",
+   "type": "Date",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Junk Lead Reason Remarks B2B",
+   "api_name": "Junk_Lead_Reason_Remarks_B2B",
+   "meaning": "Remarks",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Junk Lead Date",
+   "api_name": "Junk_Lead_Date",
+   "meaning": "Date at the time of lead declared junk",
+   "type": "Date",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Availability of Showroom Space in Sqft",
+   "api_name": "Availability_of_Showroom_Space_in_Sqft",
+   "meaning": "Dealer Showroom space",
+   "type": "",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Days Difference",
+   "api_name": "Days_Difference",
+   "meaning": "When Sales Person first made contact with customer and updated anything in the opportunity.",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Cx Confirmed Sale",
+   "api_name": "Cx_Confirmed_Sale",
+   "meaning": "yes/Noby Customer",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Email",
+   "api_name": "Email",
+   "meaning": "email of customer",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "L2 Agent Number",
+   "api_name": "L2_Agent_Number",
+   "meaning": "Call center Agent id",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "L2 Call Status",
+   "api_name": "L2_Call_Status",
+   "meaning": "Call center customer status",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "L2 First Attempt Date/Time",
+   "api_name": "L2_First_Attempt_Date_Time",
+   "meaning": "Call Center lead attempt date",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "L2 Owner",
+   "api_name": "L2_Owner",
+   "meaning": "Call Center lead Owner",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "L2 Purchase Value (if purchased)",
+   "api_name": "L2_Purchase_Value_if_purchased",
+   "meaning": "Call Center CX Pushased value",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "L2 Purchase/Invoice Date",
+   "api_name": "L2_Purchase_Invoice_Date",
+   "meaning": "Call Center CX Pushased inv date",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "L2 Remark Date",
+   "api_name": "L2_Remark_Date",
+   "meaning": "Call Center CX remark date",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "L2 Remarks",
+   "api_name": "L2_Remarks",
+   "meaning": "Call Center CX remark date",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "L2 Status",
+   "api_name": "L2_Status",
+   "meaning": "Call Center CX status",
+   "type": "Drop Down",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Qty required",
+   "api_name": "Qty_required",
+   "meaning": "Quantity Required for Adhesive",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Qty_delivered",
+   "api_name": "Qty_delivered",
+   "meaning": "Delivered (Not in use from last 2.5 years)",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "Remarks",
+   "api_name": "Remarks",
+   "meaning": "Remarks",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Record Id",
+   "api_name": "Record_Id",
+   "meaning": "Id",
+   "type": "Integer",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Remarks of Junk Lead",
+   "api_name": "Remarks_of_Junk_Lead",
+   "meaning": "Lead",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Sales Person/Customer Remarks",
+   "api_name": "Sales_Person_Customer_Remarks",
+   "meaning": "Remarks",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Schedule Visit time",
+   "api_name": "Schedule_Visit_time",
+   "meaning": "date time when cutomer visit is scheduled",
+   "type": "Date/Time",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Scoring",
+   "api_name": "Scoring",
+   "meaning": "Scoring (Not in use from last 1.5 years)",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "StateCode",
+   "api_name": "StateCode",
+   "meaning": "Statecode (Not in use from last 1.5 years)",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": false
+  },
+  {
+   "label": "Store Name",
+   "api_name": "Store_Name",
+   "meaning": "Store Name",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Sub-source",
+   "api_name": "Sub_source",
+   "meaning": "Lead sub source",
+   "type": "Single Line",
+   "confirmed": true,
+   "in_use": true
+  },
+  {
+   "label": "ZH Code",
+   "api_name": "ZH_Code",
+   "meaning": "Zonal head emp id",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "ZM Code",
+   "api_name": "ZM_Code",
+   "meaning": "ZM emp id",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Zip Code",
+   "api_name": "Zip_Code",
+   "meaning": "pincode",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Zonal Head",
+   "api_name": "Zonal_Head",
+   "meaning": "ZH name",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Zonal Manager",
+   "api_name": "Zonal_Manager",
+   "meaning": "ZM Name",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Zonal Manager Mail",
+   "api_name": "Zonal_Manager_Mail",
+   "meaning": "ZM Email",
+   "type": "Single Line",
+   "confirmed": false,
+   "in_use": true
+  },
+  {
+   "label": "Parent ID",
+   "api_name": "Parent_ID",
+   "meaning": "",
+   "type": "",
+   "confirmed": false,
+   "in_use": true
+  }
+ ]
+}

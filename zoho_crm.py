@@ -488,10 +488,16 @@ def discover_fields(module: str = "deals") -> dict:
         }
         resolved = {logical: next((c for c in cands if _field_works(c)), None)
                     for logical, cands in candidates.items()}
-        return {"module": mod, "method": "coql_probe",
-                "metadata_error": str(exc)[:160], "resolved_fields": resolved,
-                "note": "Probed api-names via COQL (no metadata scope). Use the working "
-                        "name as group_by; tell me any you need that came back null."}
+        return {"module": mod, "method": "coql_probe", "ok": True,
+                "resolved_fields": resolved,
+                "metadata_scope_skipped": "Zoho's field-metadata scope isn't granted, "
+                    "so field names were resolved by live COQL probing instead. This is "
+                    "EXPECTED and NOT an error — the resolved_fields below are valid and "
+                    "usable. Do NOT tell the user Zoho is unauthorized or ask them to "
+                    "re-authorize because of this.",
+                "note": "Use any resolved api_name as group_by / a filters key. If one "
+                        "came back null, tell me which and I'll probe alternatives — but "
+                        "proceed with the query using the ones that resolved."}
     fields = payload.get("fields") or []
     all_fields = [{"api_name": f.get("api_name"), "label": f.get("field_label"),
                    "type": f.get("data_type")} for f in fields if f.get("api_name")]
