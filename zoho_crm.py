@@ -268,11 +268,44 @@ def discover_fields(module: str = "deals") -> dict:
         payload = zoho_client.get(f"crm/{_api_version()}/settings/fields",
                                   params={"module": mod})
     except Exception as exc:
-        return {"module": mod, "error": str(exc),
-                "hint": "Reading field metadata needs the ZohoCRM.settings.fields.READ "
-                        "(or ZohoCRM.settings.READ) scope. Either add it to the token, "
-                        "or just tell me the exact API name of the salesperson-email and "
-                        "status fields and I'll use them directly."}
+        # Metadata scope missing → discover names by PROBING candidates via COQL
+        # (uses only the coql/module scope we already have). For each logical field
+        # we try common api-name spellings and keep the first that COQL accepts.
+        def _field_works(cand: str) -> bool:
+            try:
+                _coql(f"select {cand} from {mod} where Created_Time > "
+                      f"'2000-01-01T00:00:00+05:30' limit 1")
+                return True
+            except Exception:
+                return False
+        candidates = {
+            "salesperson_email": ["Sales_Person_Email_ID", "Sales_Person_Email",
+                                  "Sales_Person_Email_Id", "SalesPerson_Email"],
+            "salesperson_name": ["Sales_Person_Name"],
+            "status_new_active_closed": ["Stage_Category", "Stage_category"],
+            "stage": ["Stage"],
+            "source": ["Lead_Source"],
+            "sub_source": ["Sub_source", "Sub_Source", "Sub_Source1"],
+            "dealer": ["Assigned_CP_Name", "Assigned_CP", "CP_Name"],
+            "zone": ["Zone"],
+            "branch": ["Branch_Area"],
+            "amount": ["Amount"],
+            "won_amount": ["Won_Amount"],
+            "volume": ["Volume_In_Sq_Mtr", "Volume_in_Sq_Mtr", "Volume"],
+            "lead_conversion_time": ["Lead_Conversion_Time"],
+            "category": ["Category"],
+            "owner": ["Owner", "Opportunity_Owner_Name"],
+        }
+        resolved = {logical: next((c for c in cands if _field_works(c)), None)
+                    for logical, cands in candidates.items()}
+        return {"module": mod, "method": "coql_probe",
+                "metadata_error": str(exc)[:160],
+                "resolved_fields": resolved,
+                "note": "Field-metadata scope isn't granted, so I probed api-names via "
+                        "COQL. resolved_fields = the working api_name for each concept "
+                        "(null = none of my spellings matched; tell me the exact one). "
+                        "Use the working name as group_by, e.g. "
+                        f"group_by='{resolved.get('salesperson_email') or 'Sales_Person_Email_ID'}'."}
     fields = payload.get("fields") or []
     all_fields = [{"api_name": f.get("api_name"), "label": f.get("field_label"),
                    "type": f.get("data_type")} for f in fields if f.get("api_name")]
