@@ -71,9 +71,19 @@ def _zoho_facts(question: str) -> dict | None:
                    "meaning": (f.get("meaning") or "")[:60]}
                   for f in zoho_crm._catalog().get("fields", []) if f.get("in_use")]
         return {
-            "modules": {"leads": "pre-qualification: ALL leads incl. converted = the "
-                                 "true total (converted leads stay in Leads)",
-                        "deals": "post-qualification opportunities (stages, won/lost)"},
+            "modules": {"leads": "PRE-qualification: ALL leads incl. converted = the "
+                                 "true total (converted leads stay in Leads). Use for "
+                                 "lead counts + source/sub-source/channel analysis. Does "
+                                 "NOT hold volume/stage/salesperson/branch-conversion.",
+                        "deals": "POST-qualification opportunities. Use for VOLUME "
+                                 "(Volume_In_Sq_Mtr sq.mtr/sq.ft), stage, won/lost, "
+                                 "open(New+Active) vs closed, SALESPERSON performance, "
+                                 "and conversion by branch/zone/area."},
+            "module_routing": "Volume, stage, won/lost, salesperson/FLS, branch, zone, "
+                              "area, open-vs-closed -> DEALS. How-many-leads / which "
+                              "channel-or-source -> LEADS. If genuinely ambiguous which "
+                              "module, tell the agent to ask ONE short clarifying "
+                              "question offering both, rather than hunting blindly.",
             "counting_rule": "TOTAL leads = Leads count (never Leads+Deals); Deals = "
                              "qualified subset; qualification rate = Deals / Leads.",
             "friendly_group_by_keys": ["month", "salesperson", "status", "stage",
@@ -157,8 +167,11 @@ discover_zoho_fields) rather than guess.
 - GA4 "engagement / traffic / demand for <page>": pick the resolved page_path (prefer a \
 category/PLP page), plan query_page_metrics (+ query_pages_engagement_ranked) and \
 audit_page(url) for the "why". Forms/popups: query_popup_breakdown / query_form_breakdown.
-- CRM (leads/deals/opportunities/salesperson/pipeline/won): use FACTS.zoho. Pick the \
-module (Leads for lead volume incl. converted; Deals for pipeline/stage/won). Put \
+- CRM (leads/deals/opportunities/salesperson/pipeline/won): use FACTS.zoho. FIRST route \
+to the right MODULE (see FACTS.zoho.module_routing): Leads = raw lead counts + source/ \
+channel; Deals = volume/stage/won-lost/salesperson/branch/zone/open-vs-closed. If the \
+question is genuinely ambiguous about which module, say to ask the user ONE short \
+clarifying question offering both, rather than guessing. Put \
 zone/branch/salesperson/status/dealer/category in the `filters` dict (NOT top-level - \
 top-level is ignored). "How much volume/amount/revenue" → metric='sum' + the right \
 sum_field (volume|amount|won_amount). Monthly → group_by='month'. Use ONLY api_names \

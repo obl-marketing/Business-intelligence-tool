@@ -59,6 +59,18 @@ Therefore the tools **self-discover** the schema instead of assuming standard na
 
 ## Zoho CRM (Leads & Deals / Opportunities)
 
+- **Module routing (STARS must decide this FIRST; it's the #1 source of wrong/empty
+  answers).** Leads = PRE-qualification: raw lead counts + source/sub-source/channel
+  analysis; it does NOT hold volume/stage/salesperson/branch. Deals/Opportunity =
+  POST-qualification: **volume** (`Volume_In_Sq_Mtr`), stage, won/lost, open (New+Active)
+  vs closed, **salesperson** performance, and conversion by **branch/zone/area**.
+  Heuristic: volume/stage/won-lost/salesperson/branch/zone/open-vs-closed → Deals;
+  how-many-leads / which-channel → Leads. When genuinely ambiguous, STARS should **ask
+  ONE short clarifying question offering both modules** rather than hunting blindly (and
+  must never say a metric "doesn't exist" after checking only Leads — volume/stage/
+  salesperson/branch all live in Deals). Encoded in agent.py's prompt + planner._zoho_facts.
+
+
 - `zoho_client.py` handles OAuth (refresh-token → access-token) and `get`/`post`.
   `zoho_crm.py` (tools `query_zoho_leads`, `query_zoho_deals`, `discover_zoho_values`)
   runs native **COQL** against the Leads and Deals modules. `zoho_opportunities.py` is
