@@ -31,6 +31,13 @@ def _source_field() -> str: return _cfg("ZOHO_SOURCE_FIELD", "Lead_Source")
 def _subsource_field() -> str: return _cfg("ZOHO_SUBSOURCE_FIELD", "Sub_Source")
 def _stage_field() -> str: return _cfg("ZOHO_STAGE_FIELD", "Stage")
 def _owner_field() -> str: return _cfg("ZOHO_OWNER_FIELD", "Owner")
+# Deals/Opportunity extras (API-name best guesses from the OBL field dictionary;
+# override via env if discover_zoho_fields shows a different api_name).
+def _salesperson_field() -> str: return _cfg("ZOHO_SALESPERSON_FIELD", "Sales_Person_Email_ID")
+def _status_field() -> str: return _cfg("ZOHO_STATUS_FIELD", "Stage_Category")  # New/Active/Closed
+def _dealer_field() -> str: return _cfg("ZOHO_DEALER_FIELD", "Assigned_CP_Name")
+def _zone_field() -> str: return _cfg("ZOHO_ZONE_FIELD", "Zone")
+def _branch_field() -> str: return _cfg("ZOHO_BRANCH_FIELD", "Branch_Area")
 
 # date_field key -> API name. Closing_Date is a DATE; the others are DATETIME.
 _DATE_FIELDS = {"created": "Created_Time", "modified": "Modified_Time",
@@ -47,7 +54,10 @@ def _dim_field(group_by: str) -> str:
     configured field; anything else is treated as a RAW field API name (e.g.
     a salesperson-email field discovered via discover_zoho_fields)."""
     known = {"source": _source_field(), "sub_source": _subsource_field(),
-             "stage": _stage_field(), "owner": _owner_field()}
+             "stage": _stage_field(), "owner": _owner_field(),
+             "salesperson": _salesperson_field(), "status": _status_field(),
+             "dealer": _dealer_field(), "zone": _zone_field(),
+             "branch": _branch_field()}
     return known.get(group_by, group_by)
 
 

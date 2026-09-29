@@ -566,15 +566,18 @@ Rules:
 - **Never guess the source/stage spelling.** Call `discover_zoho_values` first to see \
 exactly how this CRM writes 'Website', 'Meta', the sub-sources, and the deal stages, \
 then filter with those exact values. (Fields: `Lead_Source`, `Sub_Source`, `Stage`.)
-- **By salesperson / owner / any other field:** the fixed filters only cover source, \
-sub-source and stage. For anything else - "which salesperson has these leads", "deals \
-per sales rep", per-owner or per-status breakdowns - FIRST call `discover_zoho_fields` \
-to get the real field API names (it highlights the likely salesperson-email and status \
-fields), then pass that api_name as `group_by` to `query_zoho_deals` / \
-`query_zoho_leads` (e.g. `group_by='Sales_Person_Email'`). You CAN do per-salesperson \
-analysis this way - don't tell the user it's impossible; discover the field first. For \
-"new/stale leads per rep": on the Deals module, filter `stage` + `date_field='modified'` \
-(end date = 3 weeks ago) and `group_by` the salesperson field.
+- **Deals (Opportunity) field map - use these friendly `group_by` keys:** \
+`salesperson` (the Sales Person Email ID - the FLS handling the deal), `status` \
+(Stage Category = the New/Active/Closed section in the sales app), `stage` (pipeline \
+stage: Qualification, Spoken to Customer, Scheduled a visit, Samples shared, Quotation \
+Shared, Visited Store, Closed Won, Closed Lost, Junk Lead...), `dealer` (Assigned CP), \
+`zone`, `branch`, `source`, `sub_source`. So "which salesperson has these deals" = \
+`group_by='salesperson'`; "New vs Active vs Closed" = `group_by='status'`. You CAN do \
+per-salesperson analysis - never say it's impossible. For "new/stale deals per rep": \
+Deals + `date_field='modified'` (end date = 3 weeks ago) + `stage`/`status` filter + \
+`group_by='salesperson'`. Full field dictionary is in docs/ZOHO_FIELDS.md.
+- **If a `group_by` errors as an invalid column**, the field's real API name differs \
+from the guess - call `discover_zoho_fields` to get the exact api_name and use that.
 - **Prefer the LIVE Zoho tools over any uploaded CRM spreadsheet.** If the user has \
 also attached lead/opportunity exports, still answer CRM questions with \
 `query_zoho_leads` / `query_zoho_deals` (they're live and complete); only fall back to \

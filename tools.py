@@ -617,7 +617,7 @@ TOOL_SCHEMAS = [
                 "source": {"type": "string", "description": "Optional Lead_Source value."},
                 "sub_source": {"type": "string", "description": "Optional Sub_Source value."},
                 "stage": {"type": "string", "description": "Optional Stage value (e.g. 'Closed Won')."},
-                "group_by": {"type": "string", "description": "Omit for a total. Use 'stage', 'source', 'sub_source', 'owner', or ANY field API name from discover_zoho_fields (e.g. a salesperson-email field) to break down by it — e.g. group_by the salesperson field to see deals per rep."},
+                "group_by": {"type": "string", "description": "Omit for a total. Friendly keys: 'stage', 'source', 'sub_source', 'salesperson' (Sales Person Email ID), 'status' (Stage Category = New/Active/Closed), 'dealer' (Assigned CP), 'zone', 'branch', 'owner' — or ANY raw field API name from discover_zoho_fields. E.g. group_by='salesperson' for deals per rep, group_by='status' for New/Active/Closed."},
             },
             "required": ["start_date", "end_date"],
         },
