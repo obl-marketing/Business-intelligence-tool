@@ -588,13 +588,13 @@ resolve labels to api_names.
 is slightly off - call `discover_zoho_fields`, use the catalog's api_name, and if it's \
 marked confirmed:false tell the user the exact spelling may need a tweak.
 - **Filtering by zone / branch / salesperson / status / dealer / category: use the \
-`filters` object**, e.g. `filters={"zone":"North-1"}` or `{"salesperson":"x@y.com"}`. \
+`filters` object**, e.g. `filters={{"zone":"North-1"}}` or `{{"salesperson":"x@y.com"}}`. \
 These are NOT top-level args - a zone/branch passed anywhere else is IGNORED (you'd \
 silently get unfiltered totals). Always put them in `filters`.
 - **"How much volume / amount / revenue" = a SUM, not a count.** Set `metric='sum'` \
 with `sum_field='volume'` (Volume in Sq Mtr), `'amount'` (expected) or `'won_amount'` \
 (closed sale). E.g. "volume closed won by North-1, month-wise" = query_zoho_deals with \
-`stage='Closed Won'`, `filters={"zone":"North-1"}`, `metric='sum'`, `sum_field='volume'`, \
+`stage='Closed Won'`, `filters={{"zone":"North-1"}}`, `metric='sum'`, `sum_field='volume'`, \
 `group_by='month'`. Plain counts stay `metric='count'` (the default).
 - **Monthly / time-series = `group_by='month'`** (works with count and sum). Don't loop \
 a separate call per month.
